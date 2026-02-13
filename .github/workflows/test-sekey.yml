@@ -19,13 +19,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install libsecret-tools
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsecret-tools
+          sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
 
       - name: Run tests
-        run: ./sekey/test.sekey.sh
+        run: |
+          # Start D-Bus session
+          eval $(dbus-launch --sh-syntax)
+          
+          # Start gnome-keyring-daemon (only secrets component needed)
+          eval $(gnome-keyring-daemon --start --components=secrets)
+          
+          # Verify Secret Service is available
+          secret-tool lookup __probe__ __probe__ >/dev/null 2>&1 || echo "Warning: Secret Service check failed"
+          
+          # Run tests in the same shell session
+          ./sekey/test.sekey.sh
 
   test-macos:
     runs-on: macos-latest
