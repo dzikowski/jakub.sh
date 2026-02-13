@@ -2,30 +2,31 @@
 
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 KEYCHAIN_SERVICE="sekey-env"
 
 # Detect OS
 OS="$(uname -s)"
 case "$OS" in
-  Darwin)
-    PLATFORM="macos"
-    STORAGE_NAME="macOS Keychain"
-    ;;
-  Linux)
-    PLATFORM="linux"
-    STORAGE_NAME="Linux Secret Service"
-    ;;
-  *)
-    echo "❌ Unsupported OS: $OS" >&2
-    exit 1
-    ;;
+Darwin)
+  PLATFORM="macos"
+  STORAGE_NAME="macOS Keychain"
+  ;;
+Linux)
+  PLATFORM="linux"
+  STORAGE_NAME="Linux Secret Service"
+  ;;
+*)
+  printf '❌ Unsupported OS: %s\n' "$OS" >&2
+  exit 1
+  ;;
 esac
 
 # --- Helpers ---------------------------------------------------------------
 
 error() {
-  echo "❌ $*" >&2
+  # %b allows \n in messages
+  printf '❌ %b\n' "$*" >&2
   exit 1
 }
 
@@ -35,8 +36,10 @@ validate_env_name() {
     error "Invalid ENV name '$name'. Use uppercase letters, digits and underscores only."
 }
 
-# Platform-specific secret storage functions
+# --- Platform-specific storage --------------------------------------------
+
 if [[ "$PLATFORM" == "macos" ]]; then
+
   get_keychain_secret() {
     local env_name="$1"
     security find-generic-password \
@@ -62,10 +65,19 @@ if [[ "$PLATFORM" == "macos" ]]; then
       -a "$env_name" \
       -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1 || true
   }
+
 elif [[ "$PLATFORM" == "linux" ]]; then
+
   check_secret_tool() {
     if ! command -v secret-tool >/dev/null 2>&1; then
       error "secret-tool not found. Install libsecret-tools package:\n  Ubuntu/Debian: sudo apt-get install libsecret-tools\n  Fedora/RHEL: sudo dnf install libsecret-tool\n  Arch: sudo pacman -S libsecret"
+    fi
+  }
+
+  ensure_secret_service() {
+    # Try a harmless lookup to verify Secret Service availability
+    if ! secret-tool lookup __probe__ __probe__ >/dev/null 2>&1; then
+      error "Secret Service not available.\nEnsure gnome-keyring or compatible service is running."
     fi
   }
 
@@ -89,12 +101,13 @@ elif [[ "$PLATFORM" == "linux" ]]; then
     secret-tool clear service "$KEYCHAIN_SERVICE" env "$env_name" >/dev/null 2>&1 || true
   }
 
-  # Check for secret-tool on Linux
   check_secret_tool
+  ensure_secret_service
 fi
 
+# --- Sanitization ----------------------------------------------------------
+
 escape_for_sed() {
-  # Escape characters meaningful in sed replacement
   printf '%s' "$1" | sed -e 's/[\/&\\]/\\&/g'
 }
 
@@ -106,7 +119,7 @@ sanitize_output() {
   local sanitized="$output"
 
   for value in "${secrets[@]}"; do
-    # Skip very short secrets to avoid over-masking
+    # Avoid masking tiny secrets
     if [[ ${#value} -lt 4 ]]; then
       continue
     fi
@@ -247,7 +260,6 @@ delete)
     exit 1
   fi
 
-  # Execute command
   set +e
   output=$("${command_args[@]}" 2>&1)
   exit_code=$?
