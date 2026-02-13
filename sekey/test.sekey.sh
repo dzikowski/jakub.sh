@@ -65,8 +65,8 @@ fi
 
 echo ""
 
-# Test 2: Verify env var is NOT in current shell environment
-info "Test 2: Verifying $TEST_ENV_NAME is NOT in current shell environment"
+# Test 2: Verify env var is NOT in current shell environment and verify output sanitization
+info "Test 2: Verifying $TEST_ENV_NAME is NOT in current shell environment and output sanitization"
 
 # Check before running script
 if [[ -n "${!TEST_ENV_NAME:-}" ]]; then
@@ -76,9 +76,11 @@ else
   pass "$TEST_ENV_NAME is not present in current shell environment (before script)"
 fi
 
-# Execute a command that uses the env var (but don't check output yet)
+# Execute a command that uses the env var and capture output
+# Note: Using ${#VAR} for character count (gives 6 for "abc123")
+# The sanitization replaces the actual value with ***
 test_cmd="echo \"\$TEST_SEKEY_ENV length is \${#TEST_SEKEY_ENV}\""
-"$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "$test_cmd" >/dev/null 2>&1
+output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "$test_cmd" 2>&1)
 
 # Check after running script
 if [[ -n "${!TEST_ENV_NAME:-}" ]]; then
@@ -88,21 +90,8 @@ else
   pass "$TEST_ENV_NAME is not present in current shell environment (after script)"
 fi
 
-echo ""
-
-# Test 3: Execute command with env var and verify sanitized output
-info "Test 3: Executing command with $TEST_ENV_NAME and verifying output sanitization"
-
-# Create a test command that uses the env var
-# Note: Using ${#VAR} for character count (gives 6 for "abc123")
-# The sanitization replaces the actual value with ***
-test_cmd="echo \"\$TEST_SEKEY_ENV length is \${#TEST_SEKEY_ENV}\""
-
-output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "$test_cmd" 2>&1)
-exit_code=$?
-
+# Verify output sanitization
 expected_pattern="\*\*\* length is 6"
-
 if echo "$output" | grep -q "$expected_pattern"; then
   pass "Output correctly sanitized: found '$expected_pattern'"
   info "  Actual output: $output"
@@ -124,7 +113,7 @@ fi
 
 echo ""
 
-# Test 4: Remove environment variable
+# Test 3: Remove environment variable
 info "Test 4: Removing $TEST_ENV_NAME from Keychain"
 if "$SEKEY_SCRIPT" delete "$TEST_ENV_NAME" >/dev/null 2>&1; then
   pass "Removed $TEST_ENV_NAME from Keychain"
