@@ -75,10 +75,24 @@ elif [[ "$PLATFORM" == "linux" ]]; then
   }
 
   ensure_secret_service() {
-    # Try a harmless lookup to verify Secret Service availability
-    if ! secret-tool lookup __probe__ __probe__ >/dev/null 2>&1; then
+    # Verify end-to-end access by storing and reading a temporary probe secret.
+    # A plain lookup can fail when the item is missing even if the service is healthy.
+    local probe_service="sekey-probe"
+    local probe_env="__probe__$$"
+
+    if ! printf 'ok' | secret-tool store \
+      --label="sekey probe" \
+      service "$probe_service" \
+      env "$probe_env" >/dev/null 2>&1; then
       error "Secret Service not available.\nEnsure gnome-keyring or compatible service is running."
     fi
+
+    if ! secret-tool lookup service "$probe_service" env "$probe_env" >/dev/null 2>&1; then
+      secret-tool clear service "$probe_service" env "$probe_env" >/dev/null 2>&1 || true
+      error "Secret Service not available.\nEnsure gnome-keyring or compatible service is running."
+    fi
+
+    secret-tool clear service "$probe_service" env "$probe_env" >/dev/null 2>&1 || true
   }
 
   get_keychain_secret() {
@@ -136,14 +150,14 @@ sanitize_output() {
 print_help() {
   cat <<EOF
 Usage:
-  $0 set [--value VALUE] ENV_NAME
+  $0 set ENV_NAME
   $0 delete ENV_NAME
   $0 --env ENV1 --env ENV2 CMD [ARGS...]
   $0 version
   $0 --help
 
 Commands:
-  set       Store secret in $STORAGE_NAME
+  set       Store secret in $STORAGE_NAME (prompts for value)
   delete    Remove secret from $STORAGE_NAME
   --env     Inject secrets into environment and sanitize output
   version   Show version
@@ -155,35 +169,13 @@ EOF
 case "${1:-}" in
 
 set)
-  shift
-  env_name=""
-  value=""
-  use_value_flag=false
-
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-    --value)
-      [[ $# -ge 2 ]] || error "--value requires a value"
-      value="$2"
-      use_value_flag=true
-      shift 2
-      ;;
-    *)
-      [[ -z "$env_name" ]] || error "Usage: $0 set [--value VALUE] ENV_NAME"
-      env_name="$1"
-      shift
-      ;;
-    esac
-  done
-
-  [[ -n "$env_name" ]] || error "Usage: $0 set [--value VALUE] ENV_NAME"
+  [[ $# -ge 2 ]] || error "Usage: $0 set ENV_NAME"
+  env_name="$2"
 
   validate_env_name "$env_name"
 
-  if [[ "$use_value_flag" == false ]]; then
-    read -rsp "Enter value for ${env_name} (hidden): " value
-    echo
-  fi
+  read -rsp "Enter value for ${env_name} (hidden): " value
+  echo
 
   [[ -n "$value" ]] || error "Empty value not allowed"
 

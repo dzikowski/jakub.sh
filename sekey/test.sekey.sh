@@ -47,7 +47,7 @@ echo ""
 
 # Test 1: Add environment variable
 info "Test 1: Adding $TEST_ENV_NAME to Keychain"
-if output=$("$SEKEY_SCRIPT" set --value "$TEST_ENV_VALUE" "$TEST_ENV_NAME" 2>&1); then
+if output=$(printf '%s\n' "$TEST_ENV_VALUE" | "$SEKEY_SCRIPT" set "$TEST_ENV_NAME" 2>&1); then
   pass "Added $TEST_ENV_NAME to Keychain"
 else
   fail "Failed to add $TEST_ENV_NAME to Keychain"
@@ -121,7 +121,7 @@ echo ""
 info "Test 3: Testing two env vars with stderr output and error exit code"
 
 # Add second environment variable
-if "$SEKEY_SCRIPT" set --value "$TEST_ENV2_VALUE" "$TEST_ENV2_NAME" >/dev/null 2>&1; then
+if printf '%s\n' "$TEST_ENV2_VALUE" | "$SEKEY_SCRIPT" set "$TEST_ENV2_NAME" >/dev/null 2>&1; then
   pass "Added $TEST_ENV2_NAME to Keychain"
 else
   fail "Failed to add $TEST_ENV2_NAME to Keychain"
