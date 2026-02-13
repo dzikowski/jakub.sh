@@ -26,37 +26,24 @@ jobs:
 
       - name: Setup Secret Service and Run tests
         run: |
-          # Setup runtime directory structure with correct permissions
-          export XDG_RUNTIME_DIR="/tmp/runtime-$USER"
-          mkdir -p "$XDG_RUNTIME_DIR"
+          # Create a private runtime dir for this CI process
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
-          mkdir -p "$XDG_RUNTIME_DIR/keyring"
-          chmod 700 "$XDG_RUNTIME_DIR/keyring"
-          
-          # Create the directory gnome-keyring expects (if it tries to use /run/user/)
-          USER_ID=$(id -u)
-          sudo mkdir -p "/run/user/$USER_ID/keyring"
-          sudo chmod 700 "/run/user/$USER_ID/keyring"
-          sudo chown "$USER:$USER" "/run/user/$USER_ID/keyring"
-          
-          # Start D-Bus session
-          eval $(dbus-launch --sh-syntax)
-          
-          # Start gnome-keyring-daemon and capture environment variables
-          eval $(gnome-keyring-daemon --start --components=secrets)
-          
-          # Wait for daemon to be ready
-          sleep 2
-          
-          # Verify Secret Service is available
-          if secret-tool lookup __probe__ __probe__ >/dev/null 2>&1; then
-            echo "✅ Secret Service is available"
-          else
-            echo "⚠️ Secret Service check failed, but continuing..."
-          fi
-          
-          # Run tests in the same shell session
-          ./sekey/test.sekey.sh
+
+          # Run keyring + tests inside one DBus session.
+          dbus-run-session -- bash -euo pipefail -c '
+            mkdir -p "$XDG_RUNTIME_DIR/keyring"
+            chmod 700 "$XDG_RUNTIME_DIR/keyring"
+
+            # Start Secret Service and export keyring vars.
+            eval "$(printf "%s" "ci-keyring-pass" | gnome-keyring-daemon --unlock --components=secrets --daemonize)"
+
+            # Fail fast if Secret Service is still unavailable.
+            secret-tool store --label="sekey-ci-probe" service "sekey-ci" env "__probe__" <<< "ok"
+            secret-tool lookup service "sekey-ci" env "__probe__" >/dev/null
+
+            ./sekey/test.sekey.sh
+          '
 
   test-macos:
     runs-on: macos-latest
