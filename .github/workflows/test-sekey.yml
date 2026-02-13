@@ -24,21 +24,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
 
-      - name: Run tests
+      - name: Setup Secret Service
         run: |
-          # Setup runtime directory for gnome-keyring-daemon
+          # Setup runtime directory structure
           export XDG_RUNTIME_DIR="/tmp/runtime-$USER"
-          mkdir -p "$XDG_RUNTIME_DIR"
+          mkdir -p "$XDG_RUNTIME_DIR/keyring"
           chmod 700 "$XDG_RUNTIME_DIR"
+          
+          # Create the directory gnome-keyring expects (if it tries to use /run/user/)
+          USER_ID=$(id -u)
+          sudo mkdir -p "/run/user/$USER_ID/keyring"
+          sudo chown "$USER:$USER" "/run/user/$USER_ID/keyring"
           
           # Start D-Bus session
           eval $(dbus-launch --sh-syntax)
           
-          # Start gnome-keyring-daemon (only secrets component needed)
+          # Start gnome-keyring-daemon and capture environment variables
           eval $(gnome-keyring-daemon --start --components=secrets)
           
+          # Wait for daemon to be ready
+          sleep 2
+          
           # Verify Secret Service is available
-          secret-tool lookup __probe__ __probe__ >/dev/null 2>&1 || echo "Warning: Secret Service check failed"
+          if secret-tool lookup __probe__ __probe__ >/dev/null 2>&1; then
+            echo "✅ Secret Service is available"
+          else
+            echo "⚠️ Secret Service check failed, but continuing..."
+          fi
           
           # Run tests in the same shell session
           ./sekey/test.sekey.sh
