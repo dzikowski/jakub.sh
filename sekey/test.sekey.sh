@@ -7,6 +7,8 @@ SEKEY_SCRIPT="$SCRIPT_DIR/sekey.sh"
 
 TEST_ENV_NAME="TEST_SEKEY_ENV"
 TEST_ENV_VALUE="abc123"
+TEST_ENV2_NAME="TEST_SEKEY_ENV2"
+TEST_ENV2_VALUE="xyz789"
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,8 +35,9 @@ info() {
 
 # Cleanup function
 cleanup() {
-  info "Cleaning up: Removing $TEST_ENV_NAME from Keychain"
+  info "Cleaning up: Removing test env vars from Keychain"
   "$SEKEY_SCRIPT" delete "$TEST_ENV_NAME" >/dev/null 2>&1 || true
+  "$SEKEY_SCRIPT" delete "$TEST_ENV2_NAME" >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT
@@ -113,8 +116,73 @@ fi
 
 echo ""
 
-# Test 3: Remove environment variable
-info "Test 4: Removing $TEST_ENV_NAME from Keychain"
+# Test 3: Two environment variables, stderr output, and error exit code
+info "Test 3: Testing two env vars with stderr output and error exit code"
+
+# Add second environment variable
+if "$SEKEY_SCRIPT" set --value "$TEST_ENV2_VALUE" "$TEST_ENV2_NAME" >/dev/null 2>&1; then
+  pass "Added $TEST_ENV2_NAME to Keychain"
+else
+  fail "Failed to add $TEST_ENV2_NAME to Keychain"
+  exit 1
+fi
+
+# Execute command with both env vars, print to stderr, and exit with error
+# Command prints both env vars to stderr and exits with code 42
+test_cmd="echo \"Error: \$TEST_SEKEY_ENV and \$TEST_SEKEY_ENV2\" >&2; exit 42"
+set +e  # Temporarily disable exit on error to capture exit code
+output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c "$test_cmd" 2>&1)
+exit_code=$?
+set -e  # Re-enable exit on error
+
+# Verify exit code is passed through correctly
+if [[ $exit_code -eq 42 ]]; then
+  pass "Exit code correctly passed through: $exit_code"
+else
+  fail "Exit code not passed through correctly. Expected: 42, Got: $exit_code"
+  exit 1
+fi
+
+# Verify stderr output is sanitized (both env values should be replaced with ***)
+if echo "$output" | grep -q "\*\*\*"; then
+  pass "Stderr output contains sanitized values"
+else
+  fail "Stderr output not sanitized"
+  echo "  Output: $output"
+  exit 1
+fi
+
+# Verify both actual values are NOT in the output
+if echo "$output" | grep -q "$TEST_ENV_VALUE"; then
+  fail "Secret value '$TEST_ENV_VALUE' leaked in stderr output!"
+  echo "  Output: $output"
+  exit 1
+else
+  pass "First secret value not present in stderr output"
+fi
+
+if echo "$output" | grep -q "$TEST_ENV2_VALUE"; then
+  fail "Secret value '$TEST_ENV2_VALUE' leaked in stderr output!"
+  echo "  Output: $output"
+  exit 1
+else
+  pass "Second secret value not present in stderr output"
+fi
+
+# Verify both env vars appear in sanitized output
+if echo "$output" | grep -q "Error: \*\*\* and \*\*\*"; then
+  pass "Both env vars correctly sanitized in stderr output"
+  info "  Actual output: $output"
+else
+  fail "Expected pattern 'Error: *** and ***' not found in output"
+  echo "  Actual output: $output"
+  exit 1
+fi
+
+echo ""
+
+# Test 4: Remove both environment variables
+info "Test 4: Removing both test env vars from Keychain"
 if "$SEKEY_SCRIPT" delete "$TEST_ENV_NAME" >/dev/null 2>&1; then
   pass "Removed $TEST_ENV_NAME from Keychain"
 else
@@ -122,11 +190,25 @@ else
   exit 1
 fi
 
-# Verify it was removed
+if "$SEKEY_SCRIPT" delete "$TEST_ENV2_NAME" >/dev/null 2>&1; then
+  pass "Removed $TEST_ENV2_NAME from Keychain"
+else
+  fail "Failed to remove $TEST_ENV2_NAME from Keychain"
+  exit 1
+fi
+
+# Verify both were removed
 if ! "$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "[ -n \"\$$TEST_ENV_NAME\" ]" >/dev/null 2>&1; then
   pass "Verified $TEST_ENV_NAME no longer exists in Keychain"
 else
   fail "$TEST_ENV_NAME still exists in Keychain after deletion"
+  exit 1
+fi
+
+if ! "$SEKEY_SCRIPT" --env "$TEST_ENV2_NAME" sh -c "[ -n \"\$$TEST_ENV2_NAME\" ]" >/dev/null 2>&1; then
+  pass "Verified $TEST_ENV2_NAME no longer exists in Keychain"
+else
+  fail "$TEST_ENV2_NAME still exists in Keychain after deletion"
   exit 1
 fi
 
