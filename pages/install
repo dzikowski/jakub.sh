@@ -4,39 +4,39 @@ set -euo pipefail
 
 # Color support: check NO_COLOR or non-TTY (stdout)
 if [ -n "${NO_COLOR+x}" ] || [ ! -t 1 ]; then
-	CYAN=''
-	GREEN=''
-	YELLOW=''
-	BLUE=''
-	PURPLE=''
-	RED=''
-	BOLD=''
-	DIM=''
-	NC=''
+  CYAN=''
+  GREEN=''
+  YELLOW=''
+  BLUE=''
+  PURPLE=''
+  RED=''
+  BOLD=''
+  DIM=''
+  NC=''
 else
-	CYAN='\033[0;36m'
-	GREEN='\033[0;32m'
-	YELLOW='\033[0;33m'
-	BLUE='\033[0;34m'
-	PURPLE='\033[0;35m'
-	RED='\033[0;31m'
-	BOLD='\033[1m'
-	DIM='\033[2m'
-	NC='\033[0m'
+  CYAN='\033[0;36m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  BLUE='\033[0;34m'
+  PURPLE='\033[0;35m'
+  RED='\033[0;31m'
+  BOLD='\033[1m'
+  DIM='\033[2m'
+  NC='\033[0m'
 fi
 
 BASE_URL="${JAKUB_SH_BASE_URL:-https://jakub.sh}"
 
 print_step() {
-	echo -e "${DIM}▸ ${1}${NC}"
+  echo -e "${DIM}▸ ${1}${NC}"
 }
 
 print_success() {
-	echo -e "${GREEN}✓ ${1}${NC}"
+  echo -e "${GREEN}✓ ${1}${NC}"
 }
 
 print_error() {
-	echo -e "${RED}✗ ${1}${NC}"
+  echo -e "${RED}✗ ${1}${NC}"
 }
 
 echo ""
@@ -53,13 +53,13 @@ TEMP_FILE=$(mktemp)
 print_step "Downloading sekey..."
 
 if curl -fSsL "$SEKEY_URL" -o "$TEMP_FILE"; then
-	chmod +x "$TEMP_FILE"
-	mv "$TEMP_FILE" "$HOME/.local/bin/sekey"
-	print_success "Installed: sekey"
+  chmod +x "$TEMP_FILE"
+  mv "$TEMP_FILE" "$HOME/.local/bin/sekey"
+  print_success "Installed: sekey"
 else
-	rm -f "$TEMP_FILE"
-	print_error "Download failed: sekey"
-	exit 1
+  rm -f "$TEMP_FILE"
+  print_error "Download failed: sekey"
+  exit 1
 fi
 
 echo ""
@@ -67,44 +67,44 @@ print_success "Installation complete!"
 echo ""
 
 if [[ ":${PATH}:" == *":${HOME}/.local/bin:"* ]]; then
-	echo "Run:"
-	echo "  sekey --help"
-	echo ""
-	echo -e "${DIM}See more at ${BLUE}https://jakub.sh${NC}"
+  echo "Run:"
+  echo "  sekey --help"
+  echo ""
+  echo -e "${DIM}See more at ${BLUE}https://jakub.sh${NC}"
 else
-	echo -e "${BOLD}Add ~/.local/bin to your PATH:${NC}"
-	echo ""
+  echo -e "${BOLD}Add ~/.local/bin to your PATH:${NC}"
+  echo ""
 
-	SHOW_BASH=false
-	SHOW_ZSH=false
-	SHOW_FISH=false
-	[ -f "$HOME/.bashrc" ] || [ -f "$HOME/.bash_profile" ] && SHOW_BASH=true
-	[ -f "$HOME/.zshrc" ] && SHOW_ZSH=true
-	[ -f "$HOME/.config/fish/config.fish" ] && SHOW_FISH=true
-	case "$(basename "$SHELL")" in
-	bash) SHOW_BASH=true ;;
-	zsh) SHOW_ZSH=true ;;
-	fish) SHOW_FISH=true ;;
-	esac
+  SHOW_BASH=false
+  SHOW_ZSH=false
+  SHOW_FISH=false
+  [ -f "$HOME/.bashrc" ] || [ -f "$HOME/.bash_profile" ] && SHOW_BASH=true
+  [ -f "$HOME/.zshrc" ] && SHOW_ZSH=true
+  [ -f "$HOME/.config/fish/config.fish" ] && SHOW_FISH=true
+  case "$(basename "$SHELL")" in
+  bash) SHOW_BASH=true ;;
+  zsh) SHOW_ZSH=true ;;
+  fish) SHOW_FISH=true ;;
+  esac
 
-	if [ "$SHOW_BASH" = true ]; then
-		echo -e "  ${DIM}bash:${NC}"
-		echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
-		echo ""
-	fi
-	if [ "$SHOW_ZSH" = true ]; then
-		echo -e "  ${DIM}zsh:${NC}"
-		echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
-		echo ""
-	fi
-	if [ "$SHOW_FISH" = true ]; then
-		echo -e "  ${DIM}fish:${NC}"
-		echo -e "  ${BOLD}mkdir -p ~/.config/fish && echo 'fish_add_path \$HOME/.local/bin' >> ~/.config/fish/config.fish"
-		echo ""
-	fi
-	if [ "$SHOW_BASH" != true ] && [ "$SHOW_ZSH" != true ] && [ "$SHOW_FISH" != true ]; then
-		echo -e "  ${DIM}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
-		echo ""
-	fi
+  if [ "$SHOW_BASH" = true ]; then
+    echo -e "  ${DIM}bash:${NC}"
+    echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+    echo ""
+  fi
+  if [ "$SHOW_ZSH" = true ]; then
+    echo -e "  ${DIM}zsh:${NC}"
+    echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
+    echo ""
+  fi
+  if [ "$SHOW_FISH" = true ]; then
+    echo -e "  ${DIM}fish:${NC}"
+    echo -e "  ${BOLD}mkdir -p ~/.config/fish && echo 'fish_add_path \$HOME/.local/bin' >> ~/.config/fish/config.fish"
+    echo ""
+  fi
+  if [ "$SHOW_BASH" != true ] && [ "$SHOW_ZSH" != true ] && [ "$SHOW_FISH" != true ]; then
+    echo -e "  ${DIM}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+    echo ""
+  fi
 fi
 echo ""
