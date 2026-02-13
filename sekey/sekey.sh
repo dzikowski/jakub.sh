@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+VERSION="0.1.1"
+KEYCHAIN_SERVICE="sekey-env"
+
+# Detect OS
+OS="$(uname -s)"
+case "$OS" in
+Darwin)
+  PLATFORM="macos"
+  STORAGE_NAME="macOS Keychain"
+  ;;
+Linux)
+  PLATFORM="linux"
+  STORAGE_NAME="Linux Secret Service"
+  ;;
+*)
+  printf '❌ Unsupported OS: %s\n' "$OS" >&2
+  exit 1
+  ;;
+esac
+
+# --- Helpers ---------------------------------------------------------------
+
+error() {
+  # %b allows \n in messages
+  printf '❌ %b\n' "$*" >&2
+  exit 1
+}
+
+validate_env_name() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Z_][A-Z0-9_]*$ ]] ||
+    error "Invalid ENV name '$name'. Use uppercase letters, digits and underscores only."
+}
+
+# --- Platform-specific storage --------------------------------------------
+
+if [[ "$PLATFORM" == "macos" ]]; then
+
+  get_keychain_secret() {
+    local env_name="$1"
+    security find-generic-password \
+      -a "$env_name" \
+      -s "$KEYCHAIN_SERVICE" \
+      -w 2>/dev/null || return 1
+  }
+
+  store_keychain_secret() {
+    local env_name="$1"
+    local value="$2"
+
+    security add-generic-password \
+      -a "$env_name" \
+      -s "$KEYCHAIN_SERVICE" \
+      -w "$value" \
+      -U >/dev/null
+  }
+
+  delete_keychain_secret() {
+    local env_name="$1"
+    security delete-generic-password \
+      -a "$env_name" \
+      -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1 || true
+  }
+
+elif [[ "$PLATFORM" == "linux" ]]; then
+
+  check_secret_tool() {
+    if ! command -v secret-tool >/dev/null 2>&1; then
+      error "secret-tool not found. Install libsecret-tools package:\n  Ubuntu/Debian: sudo apt-get install libsecret-tools\n  Fedora/RHEL: sudo dnf install libsecret-tool\n  Arch: sudo pacman -S libsecret"
+    fi
+  }
+
+  ensure_secret_service() {
+    # Verify end-to-end access by storing and reading a temporary probe secret.
+    # A plain lookup can fail when the item is missing even if the service is healthy.
+    local probe_service="sekey-probe"
+    local probe_env="__probe__$$"
+
+    if ! printf 'ok' | secret-tool store \
+      --label="sekey probe" \
+      service "$probe_service" \
+      env "$probe_env" >/dev/null 2>&1; then
+      error "Secret Service not available.\nEnsure gnome-keyring or compatible service is running."
+    fi
+
+    if ! secret-tool lookup service "$probe_service" env "$probe_env" >/dev/null 2>&1; then
+      secret-tool clear service "$probe_service" env "$probe_env" >/dev/null 2>&1 || true
+      error "Secret Service not available.\nEnsure gnome-keyring or compatible service is running."
+    fi
+
+    secret-tool clear service "$probe_service" env "$probe_env" >/dev/null 2>&1 || true
+  }
+
+  get_keychain_secret() {
+    local env_name="$1"
+    secret-tool lookup service "$KEYCHAIN_SERVICE" env "$env_name" 2>/dev/null || return 1
+  }
+
+  store_keychain_secret() {
+    local env_name="$1"
+    local value="$2"
+
+    printf '%s' "$value" | secret-tool store \
+      --label="sekey-env: ${env_name}" \
+      service "$KEYCHAIN_SERVICE" \
+      env "$env_name" >/dev/null 2>&1
+  }
+
+  delete_keychain_secret() {
+    local env_name="$1"
+    secret-tool clear service "$KEYCHAIN_SERVICE" env "$env_name" >/dev/null 2>&1 || true
+  }
+
+  check_secret_tool
+  ensure_secret_service
+fi
+
+# --- Sanitization ----------------------------------------------------------
+
+escape_for_sed() {
+  printf '%s' "$1" | sed -e 's/[\/&\\]/\\&/g'
+}
+
+sanitize_output() {
+  local output="$1"
+  shift
+  local secrets=("$@")
+
+  local sanitized="$output"
+
+  for value in "${secrets[@]}"; do
+    # Avoid masking tiny secrets
+    if [[ ${#value} -lt 4 ]]; then
+      continue
+    fi
+
+    local escaped
+    escaped=$(escape_for_sed "$value")
+
+    sanitized=$(printf '%s\n' "$sanitized" | sed "s/$escaped/***/g")
+  done
+
+  printf '%s' "$sanitized"
+}
+
+print_help() {
+  cat <<EOF
+Usage:
+  $0 set ENV_NAME
+  $0 delete ENV_NAME
+  $0 --env ENV1 --env ENV2 CMD [ARGS...]
+  $0 version
+  $0 --help
+
+Commands:
+  set       Store secret in $STORAGE_NAME (prompts for value)
+  delete    Remove secret from $STORAGE_NAME
+  --env     Inject secrets into environment and sanitize output
+  version   Show version
+EOF
+}
+
+# --- Main ------------------------------------------------------------------
+
+case "${1:-}" in
+
+set)
+  [[ $# -ge 2 ]] || error "Usage: $0 set ENV_NAME"
+  env_name="$2"
+
+  validate_env_name "$env_name"
+
+  read -rsp "Enter value for ${env_name} (hidden): " value
+  echo
+
+  [[ -n "$value" ]] || error "Empty value not allowed"
+
+  store_keychain_secret "$env_name" "$value"
+  echo "✅ Stored ${env_name} in $STORAGE_NAME"
+  ;;
+
+delete)
+  [[ $# -ge 2 ]] || error "Usage: $0 delete ENV_NAME"
+  env_name="$2"
+
+  validate_env_name "$env_name"
+
+  if ! get_keychain_secret "$env_name" >/dev/null 2>&1; then
+    error "${env_name} not found in $STORAGE_NAME"
+  fi
+
+  delete_keychain_secret "$env_name"
+  echo "✅ Deleted ${env_name}"
+  ;;
+
+--env | --env=*)
+  declare -a env_names=()
+  declare -a command_args=()
+  declare -a secrets=()
+
+  expect_env_value=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --env)
+      expect_env_value=true
+      shift
+      ;;
+    --env=*)
+      env_names+=("${1#--env=}")
+      shift
+      ;;
+    *)
+      if [[ "$expect_env_value" == true ]]; then
+        env_names+=("$1")
+        expect_env_value=false
+        shift
+      else
+        command_args+=("$@")
+        break
+      fi
+      ;;
+    esac
+  done
+
+  [[ "$expect_env_value" == false ]] || error "--env requires a variable name"
+  [[ ${#env_names[@]} -gt 0 ]] || error "No environment variables specified"
+  [[ ${#command_args[@]} -gt 0 ]] || error "No command specified"
+
+  missing_envs=()
+
+  for env_name in "${env_names[@]}"; do
+    validate_env_name "$env_name"
+
+    if value=$(get_keychain_secret "$env_name"); then
+      export "$env_name=$value"
+      secrets+=("$value")
+    else
+      missing_envs+=("$env_name")
+    fi
+  done
+
+  if [[ ${#missing_envs[@]} -gt 0 ]]; then
+    echo "❌ Missing environment variables:"
+    for e in "${missing_envs[@]}"; do
+      echo "   $e  →  $0 set $e"
+    done
+    exit 1
+  fi
+
+  set +e
+  output=$("${command_args[@]}" 2>&1)
+  exit_code=$?
+  set -e
+
+  sanitized=$(sanitize_output "$output" "${secrets[@]}")
+  printf '%s' "$sanitized"
+
+  exit $exit_code
+  ;;
+
+version)
+  echo "$VERSION"
+  ;;
+
+--help | -h | "")
+  print_help
+  ;;
+
+*)
+  error "Unknown command '$1'. Use --help."
+  ;;
+esac
