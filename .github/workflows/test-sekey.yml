@@ -3,12 +3,8 @@ name: Test sekey
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'sekey/**'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'sekey/**'
   workflow_dispatch:
 
 jobs:
