@@ -56,10 +56,10 @@ else
 fi
 
 # Verify it was added
-set +e  # Temporarily disable exit on error to capture exit code
+set +e # Temporarily disable exit on error to capture exit code
 "$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "[ -n \"\$$TEST_ENV_NAME\" ]" >/dev/null 2>&1
 verify_result=$?
-set -e  # Re-enable exit on error
+set -e # Re-enable exit on error
 if [[ $verify_result -eq 0 ]]; then
   pass "Verified $TEST_ENV_NAME exists in Keychain"
 else
@@ -131,10 +131,10 @@ fi
 # Execute command with both env vars, print to stderr, and exit with error
 # Command prints both env vars to stderr and exits with code 42
 # Note: Variables will be expanded by the inner shell when sh -c runs
-set +e  # Temporarily disable exit on error to capture exit code
+set +e # Temporarily disable exit on error to capture exit code
 output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c 'echo "Error: $TEST_SEKEY_ENV and $TEST_SEKEY_ENV2" >&2; exit 42' 2>&1)
 exit_code=$?
-set -e  # Re-enable exit on error
+set -e # Re-enable exit on error
 
 # Verify exit code is passed through correctly
 if [[ $exit_code -eq 42 ]]; then
