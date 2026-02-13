@@ -12,7 +12,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  test-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: ./sekey/test.sekey.sh
+
+  test-macos:
     runs-on: macos-latest
 
     steps:

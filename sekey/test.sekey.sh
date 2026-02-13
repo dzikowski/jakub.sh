@@ -5,9 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEKEY_SCRIPT="$SCRIPT_DIR/sekey.sh"
 
-TEST_ENV_NAME="TEST_SEKEY_ENV"
+TEST_ENV_NAME="TEST_SEKEY_ENV_1"
 TEST_ENV_VALUE="abc123"
-TEST_ENV2_NAME="TEST_SEKEY_ENV2"
+TEST_ENV2_NAME="TEST_SEKEY_ENV_2"
 TEST_ENV2_VALUE="xyz789"
 
 # Colors for output
@@ -83,7 +83,7 @@ fi
 # Execute a command that uses the env var and capture output
 # Note: Using ${#VAR} for character count (gives 6 for "abc123")
 # The sanitization replaces the actual value with ***
-test_cmd="echo \"\$TEST_SEKEY_ENV length is \${#TEST_SEKEY_ENV}\""
+test_cmd="echo \"\$TEST_SEKEY_ENV_1 length is \${#TEST_SEKEY_ENV_1}\""
 output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" sh -c "$test_cmd" 2>&1)
 
 # Check after running script
@@ -132,7 +132,7 @@ fi
 # Command prints both env vars to stderr and exits with code 42
 # Note: Variables will be expanded by the inner shell when sh -c runs
 set +e # Temporarily disable exit on error to capture exit code
-output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c 'echo "Error: $TEST_SEKEY_ENV and $TEST_SEKEY_ENV2" >&2; exit 42' 2>&1)
+output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c 'echo "Error: $TEST_SEKEY_ENV_1 and $TEST_SEKEY_ENV_2" >&2; exit 42' 2>&1)
 exit_code=$?
 set -e # Re-enable exit on error
 
