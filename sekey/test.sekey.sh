@@ -47,10 +47,11 @@ echo ""
 
 # Test 1: Add environment variable
 info "Test 1: Adding $TEST_ENV_NAME to Keychain"
-if "$SEKEY_SCRIPT" set --value "$TEST_ENV_VALUE" "$TEST_ENV_NAME" >/dev/null 2>&1; then
+if output=$("$SEKEY_SCRIPT" set --value "$TEST_ENV_VALUE" "$TEST_ENV_NAME" 2>&1); then
   pass "Added $TEST_ENV_NAME to Keychain"
 else
   fail "Failed to add $TEST_ENV_NAME to Keychain"
+  echo "  Error: $output"
   exit 1
 fi
 
@@ -129,9 +130,9 @@ fi
 
 # Execute command with both env vars, print to stderr, and exit with error
 # Command prints both env vars to stderr and exits with code 42
-test_cmd="echo \"Error: \$TEST_SEKEY_ENV and \$TEST_SEKEY_ENV2\" >&2; exit 42"
+# Note: Variables will be expanded by the inner shell when sh -c runs
 set +e  # Temporarily disable exit on error to capture exit code
-output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c "$test_cmd" 2>&1)
+output=$("$SEKEY_SCRIPT" --env "$TEST_ENV_NAME" --env "$TEST_ENV2_NAME" sh -c 'echo "Error: $TEST_SEKEY_ENV and $TEST_SEKEY_ENV2" >&2; exit 42' 2>&1)
 exit_code=$?
 set -e  # Re-enable exit on error
 

@@ -19,16 +19,22 @@ store_keychain_secret() {
   local env_name="$1"
   local value="$2"
   
-  # Try to update first, if it fails, add new
-  security add-generic-password \
-    -a "$env_name" \
-    -s "$KEYCHAIN_SERVICE" \
-    -w "$value" \
-    -U 2>/dev/null || \
-  security add-generic-password \
-    -a "$env_name" \
-    -s "$KEYCHAIN_SERVICE" \
-    -w "$value"
+  # Check if item exists first
+  if security find-generic-password -a "$env_name" -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1; then
+    # Item exists, update it
+    security add-generic-password \
+      -a "$env_name" \
+      -s "$KEYCHAIN_SERVICE" \
+      -w "$value" \
+      -U 2>&1
+  else
+    # Item doesn't exist, add new
+    security add-generic-password \
+      -a "$env_name" \
+      -s "$KEYCHAIN_SERVICE" \
+      -w "$value" \
+      2>&1
+  fi
 }
 
 delete_keychain_secret() {
@@ -204,6 +210,8 @@ case "${1:-}" in
     cmd_args=("${command_args[@]:1}")
     
     # Capture both stdout and stderr, preserving exit code
+    # Temporarily disable set -e to capture output even if command fails
+    set +e
     output=""
     exit_code=0
     
@@ -214,6 +222,7 @@ case "${1:-}" in
       output=$("$cmd" 2>&1)
     fi
     exit_code=$?
+    set -e
     
     # Sanitize output
     sanitized_output=""
