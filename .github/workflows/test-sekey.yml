@@ -1,0 +1,23 @@
+name: Test sekey
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'sekey/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'sekey/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: ./sekey/test.sekey.sh
