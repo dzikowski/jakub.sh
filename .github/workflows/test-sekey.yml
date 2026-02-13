@@ -26,6 +26,11 @@ jobs:
 
       - name: Run tests
         run: |
+          # Setup runtime directory for gnome-keyring-daemon
+          export XDG_RUNTIME_DIR="/tmp/runtime-$USER"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          
           # Start D-Bus session
           eval $(dbus-launch --sh-syntax)
           
