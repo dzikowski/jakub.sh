@@ -2,18 +2,23 @@
 
 set -euo pipefail
 
-DEFAULT_TARGET="$HOME/.local/jai/status.md"
-VALID_STATUSES=("QUEUED" "RUNNING" "REVIEW_REQUIRED")
+DEFAULT_TARGET="$HOME/.local/jai-status.md"
 COMMAND="${1:-}"
 
 print_help() {
   cat <<'EOF'
 Usage:
-  jai set -p <project> -s <status> -d <description> [-i <num>] [--target <file>]
-  jai get -p <project> [-i <num>] [--target <file>]
-  jai rm  -p <project> [-i <num>] [--target <file>]
-  jai watch [--target <file>]
+  jai queue  -p <project> -d <description> [--target <file>]
+  jai start  -p <project> -d <description> [--target <file>]
+  jai notify -p <project> -d <description> [-i <num>] [--target <file>]
+  jai get    -p <project> [-i <num>] [--target <file>]
+  jai rm     -p <project> [-i <num>] [--target <file>]
+  jai watch  [--target <file>]
   jai cursorrule
+
+'queue' adds a QUEUED entry, auto-assigns the next index, and prints it.
+'start' does the same but sets status to RUNNING.
+'notify' sets an existing task to REVIEW_REQUIRED (defaults to index 0 when -i is omitted).
 
 Statuses:
   QUEUED
@@ -24,11 +29,45 @@ EOF
 
 print_cursorrule() {
   cat <<'EOF'
-At the beginning of agent work:
-`jai set -p "<project>" -s RUNNING -d "<what you are working on now>"`
+---
+description: Enforce JAI work status updates for every agent session
+alwaysApply: true
+---
 
-At the end of agent work:
-`jai set -p "<project>" -s REVIEW_REQUIRED -d "<done summary and what needs review>"`
+# JAI Work Status Protocol
+
+Project name must be the current VS Code project name (workspace folder name). Use that value for `<project>`.
+
+If project context needs verification, use:
+
+```bash
+jai get -p "<project>"
+```
+
+At the beginning of agent work, start a new task to claim a unique index:
+
+```bash
+INDEX=$(jai start -p "<project>" -d "<what you are working on now>")
+```
+
+The command prints the assigned numeric index. Use it for all subsequent updates.
+
+At the end of agent work, update the status with the assigned index:
+
+```bash
+jai notify -p "<project>" -i "$INDEX" -d "<done summary and what needs review>"
+```
+When you follow up the task on the next prompt, use the same index.
+
+When the user says `jai queue` or `jai queue <description>`, add the current remaining task to the queue:
+
+```bash
+jai queue -p "<project>" -d "<description of remaining work>"
+```
+
+If the user provided a description after `jai queue`, use it. Otherwise, infer a concrete description from the current context.
+
+Use concrete descriptions, not generic text like "working" or "done".
 EOF
 }
 
@@ -45,17 +84,6 @@ normalize_text() {
 
 normalize_and_trim() {
   normalize_text "$1" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//'
-}
-
-is_valid_status() {
-  local candidate="$1"
-  local s
-  for s in "${VALID_STATUSES[@]}"; do
-    if [[ "$candidate" == "$s" ]]; then
-      return 0
-    fi
-  done
-  return 1
 }
 
 validate_index() {
@@ -120,7 +148,7 @@ if [[ "$COMMAND" == "watch" ]]; then
   exec watch -n 1 cat "$target"
 fi
 
-if [[ "$COMMAND" != "set" && "$COMMAND" != "get" && "$COMMAND" != "rm" ]]; then
+if [[ "$COMMAND" != "queue" && "$COMMAND" != "start" && "$COMMAND" != "notify" && "$COMMAND" != "get" && "$COMMAND" != "rm" ]]; then
   error "Unknown command '$COMMAND'. Use --help."
 fi
 shift
@@ -170,11 +198,30 @@ project="$(normalize_and_trim "$project")"
 [[ -n "$project" ]] || error "Project is required (-p)"
 [[ -n "$index" ]] && validate_index "$index"
 
-if [[ "$COMMAND" == "set" ]]; then
-  status="$(printf '%s' "$status" | tr '[:lower:]' '[:upper:]')"
+if [[ ("$COMMAND" == "queue" || "$COMMAND" == "start") && -n "$index" ]]; then
+  error "The $COMMAND command does not accept -i; it auto-assigns the next index."
+fi
+
+if [[ -n "$status" ]]; then
+  error "The -s/--status option is no longer supported. Use queue/start/notify commands."
+fi
+
+if [[ "$COMMAND" == "notify" && -z "$index" ]]; then
+  index="0"
+fi
+
+if [[ "$COMMAND" == "notify" ]]; then
   description="$(normalize_and_trim "$description")"
   [[ -n "$description" ]] || error "Description is required (-d)"
-  is_valid_status "$status" || error "Invalid status '$status'. Use: QUEUED, RUNNING, REVIEW_REQUIRED."
+  status="REVIEW_REQUIRED"
+elif [[ "$COMMAND" == "queue" || "$COMMAND" == "start" ]]; then
+  description="$(normalize_and_trim "$description")"
+  [[ -n "$description" ]] || error "Description is required (-d)"
+  if [[ "$COMMAND" == "queue" ]]; then
+    status="QUEUED"
+  else
+    status="RUNNING"
+  fi
 fi
 
 mkdir -p "$(dirname "$target")"
@@ -219,9 +266,27 @@ if [[ -f "$target" ]]; then
   }' "$target" >>"$records_file"
 fi
 
+if [[ "$COMMAND" == "queue" || "$COMMAND" == "start" ]]; then
+  index=$(awk -F'\t' -v base="$project" '
+  BEGIN { max = -1 }
+  {
+    token = $1
+    prefix = base "#"
+    if (index(token, prefix) == 1) {
+      rest = substr(token, length(prefix) + 1)
+      if (rest ~ /^[0-9]+$/) {
+        idx = rest + 0
+        if (idx > max) max = idx
+      }
+    }
+  }
+  END { print max + 1 }
+  ' "$records_file")
+fi
+
 project_token="$(build_project_token "$project" "$index")"
 
-if [[ "$COMMAND" == "set" ]]; then
+if [[ "$COMMAND" == "notify" || "$COMMAND" == "queue" || "$COMMAND" == "start" ]]; then
   printf '%s\t%s\t%s\n' "$project_token" "$status" "$description" >>"$records_file"
 fi
 
@@ -310,6 +375,8 @@ if [[ "$COMMAND" == "rm" ]]; then
   else
     printf 'Removed all entries for %s from %s\n' "$project" "$target"
   fi
+elif [[ "$COMMAND" == "queue" || "$COMMAND" == "start" ]]; then
+  printf '%s\n' "$index"
 else
   printf 'Updated %s (%s -> %s)\n' "$target" "$project_token" "$status"
 fi

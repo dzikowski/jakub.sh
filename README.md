@@ -31,7 +31,10 @@ sekey --env MY_SECRET command.sh
 Task/agent status tracker (=> [README.md](jai/README.md)).
 
 ```bash
-jai set -p api-agent -s RUNNING -d "Implementing retries"
+jai start -p api-agent -d "Implementing retries"
+jai queue -p api-agent -d "New sub-task"
+jai notify -p api-agent -i 0 -d "Done, ready for review"
+jai rm -p api-agent -i 1
 jai get -p api-agent
 jai watch
 jai cursorrule

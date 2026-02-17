@@ -4,13 +4,19 @@ Track agent/task status in a shared markdown file.
 
 Default status file:
 
-`~/.local/jai/status.md`
+`~/.local/jai-status.md`
 
 ## Commands
 
 ```bash
-# Set status
-jai set -p <project> -s <status> -d <description> [-i <num>] [--target <file>]
+# Queue a new task (QUEUED, auto-assigns index, prints it)
+jai queue -p <project> -d <description> [--target <file>]
+
+# Start a new task (RUNNING, auto-assigns index, prints it)
+jai start -p <project> -d <description> [--target <file>]
+
+# Mark a task as review required
+jai notify -p <project> -d <description> [-i <num>] [--target <file>]
 
 # Get status
 jai get -p <project> [-i <num>] [--target <file>]
@@ -33,19 +39,28 @@ Allowed statuses:
 
 ## Indexed projects
 
-With index:
+`queue` adds a new task as QUEUED, auto-assigns the next available index, and prints it:
 
 ```bash
-jai set -p agent-a -i 2 -s RUNNING -d "Investigating flaky test"
+idx=$(jai queue -p agent-a -d "New sub-task")
+echo "$idx"   # e.g. 3
 ```
 
-Stored line:
+`start` does the same but marks the task as RUNNING immediately:
 
-```md
-- **agent-a#2**: Investigating flaky test
+```bash
+idx=$(jai start -p agent-a -d "Investigating flaky test")
+echo "$idx"   # e.g. 4
 ```
 
-Without `-i`, `get` and `rm` affect all entries for that project (`project` and `project#N`).
+`notify` updates an index to REVIEW_REQUIRED. If `-i` is omitted, index `0` is used:
+
+```bash
+jai notify -p agent-a -i 4 -d "Done, ready for review"
+jai notify -p agent-a -d "Default index done"
+```
+
+Without `-i`, `get` and `rm` affect all entries for that project (`project#N`).
 
 ## Watch mode
 
