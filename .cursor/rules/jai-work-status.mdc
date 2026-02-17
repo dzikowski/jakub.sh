@@ -1,0 +1,28 @@
+---
+description: 
+alwaysApply: true
+---
+
+# JAI Work Status Protocol
+
+Project name must be the current VS Code project name (workspace folder name). Use that value for `<project>`.
+
+If project context needs verification, use:
+
+```bash
+jai get -p "<project>"
+```
+
+At the beginning of agent work, set the project status to `RUNNING` with a short description of current work.
+
+```bash
+jai set -p "<project>" -s RUNNING -d "<what you are working on now>"
+```
+
+At the end of agent work, set the project status to `REVIEW_REQUIRED` with a concise done summary and what needs review.
+
+```bash
+jai set -p "<project>" -s REVIEW_REQUIRED -d "<done summary and what needs review>"
+```
+
+Use concrete descriptions, not generic text like "working" or "done".

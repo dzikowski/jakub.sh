@@ -25,3 +25,14 @@ Sandbox the secret. The command is executed with env injected from secrets, and 
 ```bash
 sekey --env MY_SECRET command.sh
 ```
+
+## jai
+
+Task/agent status tracker (=> [README.md](jai/README.md)).
+
+```bash
+jai set -p api-agent -s RUNNING -d "Implementing retries"
+jai get -p api-agent
+jai watch
+jai cursorrule
+```
