@@ -47,6 +47,7 @@ print_step "Ensuring bin directory exists at ~/.local/bin..."
 mkdir -p ~/.local/bin
 
 SEKEY_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/sekey/sekey.sh"
+JAI_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/jai/jai.sh"
 TEMP_FILE=$(mktemp)
 
 # installing sekey
@@ -62,6 +63,19 @@ else
   exit 1
 fi
 
+# installing jai
+print_step "Downloading jai..."
+
+if curl -fSsL "$JAI_URL" -o "$TEMP_FILE"; then
+  chmod +x "$TEMP_FILE"
+  mv "$TEMP_FILE" "$HOME/.local/bin/jai"
+  print_success "Installed: jai"
+else
+  rm -f "$TEMP_FILE"
+  print_error "Download failed: jai"
+  exit 1
+fi
+
 echo ""
 print_success "Installation complete!"
 echo ""
@@ -69,6 +83,8 @@ echo ""
 if [[ ":${PATH}:" == *":${HOME}/.local/bin:"* ]]; then
   echo "Run:"
   echo "  sekey --help"
+  echo "  jai --help"
+  echo "  jai cursorhooks"
   echo ""
   echo -e "${DIM}See more at ${BLUE}https://jakub.sh${NC}"
 else
