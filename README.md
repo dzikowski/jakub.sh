@@ -37,5 +37,5 @@ jai notify -p api-agent -i 0 -d "Done, ready for review"
 jai rm -p api-agent -i 1
 jai get -p api-agent
 jai watch
-jai cursorrule
+jai cursorhooks
 ```

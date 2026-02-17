@@ -84,7 +84,7 @@ if [[ ":${PATH}:" == *":${HOME}/.local/bin:"* ]]; then
   echo "Run:"
   echo "  sekey --help"
   echo "  jai --help"
-  echo "  jai cursorrule"
+  echo "  jai cursorhooks"
   echo ""
   echo -e "${DIM}See more at ${BLUE}https://jakub.sh${NC}"
 else

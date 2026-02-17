@@ -14,7 +14,7 @@ Usage:
   jai get    -p <project> [-i <num>] [--target <file>]
   jai rm     -p <project> [-i <num>] [--target <file>]
   jai watch  [--target <file>]
-  jai cursorrule
+  jai cursorhooks
 
 'queue' adds a QUEUED entry, auto-assigns the next index, and prints it.
 'start' does the same but sets status to RUNNING.
@@ -27,47 +27,23 @@ Statuses:
 EOF
 }
 
-print_cursorrule() {
+print_cursorhooks() {
   cat <<'EOF'
----
-description: Enforce JAI work status updates for every agent session
-alwaysApply: true
----
-
-# JAI Work Status Protocol
-
-Project name must be the current VS Code project name (workspace folder name). Use that value for `<project>`.
-
-If project context needs verification, use:
-
-```bash
-jai get -p "<project>"
-```
-
-At the beginning of agent work, start a new task to claim a unique index:
-
-```bash
-INDEX=$(jai start -p "<project>" -d "<what you are working on now>")
-```
-
-The command prints the assigned numeric index. Use it for all subsequent updates.
-
-At the end of agent work, update the status with the assigned index:
-
-```bash
-jai notify -p "<project>" -i "$INDEX" -d "<done summary and what needs review>"
-```
-When you follow up the task on the next prompt, use the same index.
-
-When the user says `jai queue` or `jai queue <description>`, add the current remaining task to the queue:
-
-```bash
-jai queue -p "<project>" -d "<description of remaining work>"
-```
-
-If the user provided a description after `jai queue`, use it. Otherwise, infer a concrete description from the current context.
-
-Use concrete descriptions, not generic text like "working" or "done".
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "jai hook-session-start"
+      }
+    ],
+    "stop": [
+      {
+        "command": "jai hook-stop"
+      }
+    ]
+  }
+}
 EOF
 }
 
@@ -84,6 +60,150 @@ normalize_text() {
 
 normalize_and_trim() {
   normalize_text "$1" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//'
+}
+
+extract_hook_description() {
+  local hook_payload="$1"
+  local extracted=""
+
+  if [[ -z "${hook_payload//[[:space:]]/}" ]]; then
+    printf ''
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    extracted="$(
+      HOOK_PAYLOAD="$hook_payload" python3 - <<'PY'
+import json
+import os
+
+payload = os.environ.get("HOOK_PAYLOAD", "")
+try:
+    data = json.loads(payload)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+paths = [
+    ("description",),
+    ("message",),
+    ("prompt",),
+    ("input", "text"),
+    ("request", "prompt"),
+    ("session", "initialPrompt"),
+]
+
+current = None
+for path in paths:
+    value = data
+    for key in path:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            value = None
+            break
+    if isinstance(value, str) and value.strip():
+        current = value.strip()
+        break
+
+print(current or "")
+PY
+    )"
+  fi
+
+  normalize_and_trim "$extracted"
+}
+
+run_hook_session_start() {
+  local hook_target="$DEFAULT_TARGET"
+  local project=""
+  local index=""
+  local start_description="Cursor session started"
+  local payload_description=""
+  local hook_payload=""
+  local additional_context=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --target)
+      [[ $# -ge 2 ]] || error "Missing value for $1"
+      hook_target="$2"
+      shift 2
+      ;;
+    --target=*)
+      hook_target="${1#--target=}"
+      shift
+      ;;
+    -h | --help)
+      print_help
+      exit 0
+      ;;
+    *)
+      error "Unknown argument: $1"
+      ;;
+    esac
+  done
+
+  hook_payload="$(cat || true)"
+  payload_description="$(extract_hook_description "$hook_payload")"
+  if [[ -n "$payload_description" ]]; then
+    start_description="$payload_description"
+  fi
+
+  if [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+    project="$(basename "$CURSOR_PROJECT_DIR")"
+  fi
+  project="$(normalize_and_trim "$project")"
+
+  if [[ -z "$project" ]]; then
+    printf '{ "continue": true }\n'
+    return 0
+  fi
+
+  if index="$("$0" start -p "$project" -d "$start_description" --target "$hook_target" 2>/dev/null)"; then
+    additional_context="JAI task auto-started as ${project}#${index}. Use 'jai queue' for extra tasks and keep descriptions concrete."
+    printf '{ "continue": true, "env": { "JAI_PROJECT": "%s", "JAI_INDEX": "%s", "JAI_TARGET": "%s" }, "additional_context": "%s" }\n' \
+      "$project" "$index" "$hook_target" "$additional_context"
+    return 0
+  fi
+
+  printf '{ "continue": true, "additional_context": "JAI auto-start failed. Run: INDEX=$(jai start -p \"%s\" -d \"<work description>\") and use that index for jai notify." }\n' "$project"
+}
+
+run_hook_stop() {
+  local hook_target="${JAI_TARGET:-$DEFAULT_TARGET}"
+  local project="${JAI_PROJECT:-}"
+  local index="${JAI_INDEX:-}"
+  local notify_description="Cursor session ended, review required"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --target)
+      [[ $# -ge 2 ]] || error "Missing value for $1"
+      hook_target="$2"
+      shift 2
+      ;;
+    --target=*)
+      hook_target="${1#--target=}"
+      shift
+      ;;
+    -h | --help)
+      print_help
+      exit 0
+      ;;
+    *)
+      error "Unknown argument: $1"
+      ;;
+    esac
+  done
+
+  cat >/dev/null || true
+
+  if [[ -n "$project" && -n "$index" ]]; then
+    "$0" notify -p "$project" -i "$index" -d "$notify_description" --target "$hook_target" >/dev/null 2>&1 || true
+  fi
+
+  printf '{}\n'
 }
 
 validate_index() {
@@ -112,8 +232,20 @@ if [[ "$COMMAND" == "--help" || "$COMMAND" == "-h" || -z "$COMMAND" ]]; then
   exit 0
 fi
 
-if [[ "$COMMAND" == "cursorrule" ]]; then
-  print_cursorrule
+if [[ "$COMMAND" == "cursorhooks" ]]; then
+  print_cursorhooks
+  exit 0
+fi
+
+if [[ "$COMMAND" == "hook-session-start" ]]; then
+  shift
+  run_hook_session_start "$@"
+  exit 0
+fi
+
+if [[ "$COMMAND" == "hook-stop" ]]; then
+  shift
+  run_hook_stop "$@"
   exit 0
 fi
 

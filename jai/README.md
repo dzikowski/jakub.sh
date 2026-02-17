@@ -27,8 +27,8 @@ jai rm -p <project> [-i <num>] [--target <file>]
 # Watch status file (refresh each second)
 jai watch [--target <file>]
 
-# Print Cursor rule snippet
-jai cursorrule
+# Print global Cursor hooks JSON snippet
+jai cursorhooks
 ```
 
 Allowed statuses:
@@ -83,3 +83,16 @@ Run end-to-end checks with:
 ```bash
 jai/test.jai.sh
 ```
+
+## Cursor hooks
+
+Install this output as `~/.cursor/hooks.json`:
+
+```bash
+jai cursorhooks > ~/.cursor/hooks.json
+```
+
+The generated global hooks call:
+
+- `jai hook-session-start` to auto-create a RUNNING task when an agent session starts
+- `jai hook-stop` to auto-notify REVIEW_REQUIRED for that same task when the session ends

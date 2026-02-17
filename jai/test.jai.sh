@@ -134,6 +134,34 @@ assert_contains "$gamma_review" "GAMMA#0: REVIEW_REQUIRED - Done, ready for revi
 
 printf 'Phase 4 (start) passed.\n'
 
+# Phase 5: cursorhooks output and hook command flow
+hooks_json="$("$JAI" cursorhooks)"
+assert_contains "$hooks_json" "\"version\": 1" "cursorhooks should return hooks schema version"
+assert_contains "$hooks_json" "\"sessionStart\"" "cursorhooks should configure sessionStart"
+assert_contains "$hooks_json" "\"stop\"" "cursorhooks should configure stop"
+assert_contains "$hooks_json" "jai hook-session-start" "cursorhooks should point to session start hook command"
+assert_contains "$hooks_json" "jai hook-stop" "cursorhooks should point to stop hook command"
+
+rm -f "$TARGET"
+hook_start_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" "$JAI" hook-session-start --target "$TARGET" <<< '{}')"
+assert_contains "$hook_start_output" "\"continue\": true" "hook-session-start should return continue=true"
+assert_contains "$hook_start_output" "\"JAI_PROJECT\": \"HOOKED\"" "hook-session-start should export project env"
+assert_contains "$hook_start_output" "\"JAI_INDEX\": \"0\"" "hook-session-start should export assigned index"
+
+hooked_running="$("$JAI" get -p "HOOKED" -i 0 --target "$TARGET")"
+assert_contains "$hooked_running" "HOOKED#0: RUNNING - Cursor session started" "hook-session-start should create RUNNING task"
+
+JAI_PROJECT="HOOKED" JAI_INDEX="0" "$JAI" hook-stop --target "$TARGET" <<< '{}' >/dev/null
+hooked_review="$("$JAI" get -p "HOOKED" -i 0 --target "$TARGET")"
+assert_contains "$hooked_review" "HOOKED#0: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should update task to REVIEW_REQUIRED"
+
+rm -f "$TARGET"
+CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-session-start --target "$TARGET" <<< '{"description":"Implement retries for API gateway"}' >/dev/null
+hooked_custom_desc="$("$JAI" get -p "HOOKDESC" -i 0 --target "$TARGET")"
+assert_contains "$hooked_custom_desc" "HOOKDESC#0: RUNNING - Implement retries for API gateway" "hook-session-start should use payload description when available"
+
+printf 'Phase 5 (cursorhooks + hook commands) passed.\n'
+
 printf '\nAll verifications passed.\n\n'
 printf 'Final target file contents:\n'
 cat "$TARGET"
