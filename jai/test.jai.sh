@@ -86,6 +86,14 @@ assert_contains "$alpha_get" "ALPHA#0: REVIEW_REQUIRED - Ready for review at def
 
 printf 'Phase 2 (notify default index 0) passed.\n'
 
+# Phase 2b: notify without -d reuses current description
+"$JAI" start -p "COPYDESC" -d "Keep this description" --target "$TARGET" >/dev/null
+"$JAI" notify -p "COPYDESC" --target "$TARGET"
+copydesc_get="$("$JAI" get -p "COPYDESC" -i 0 --target "$TARGET")"
+assert_contains "$copydesc_get" "COPYDESC#0: REVIEW_REQUIRED - Keep this description" "notify without -d should reuse existing description"
+
+printf 'Phase 2b (notify description reuse) passed.\n'
+
 # Phase 3: queue always creates QUEUED entries and auto-assigns index
 idx1="$("$JAI" queue -p "ALPHA" -d "First appended task" --target "$TARGET")"
 [[ "$idx1" == "1" ]] || { printf 'FAIL: Expected queue index 1, got %s\n' "$idx1" >&2; exit 1; }
@@ -137,28 +145,39 @@ printf 'Phase 4 (start) passed.\n'
 # Phase 5: cursorhooks output and hook command flow
 hooks_json="$("$JAI" cursorhooks)"
 assert_contains "$hooks_json" "\"version\": 1" "cursorhooks should return hooks schema version"
-assert_contains "$hooks_json" "\"sessionStart\"" "cursorhooks should configure sessionStart"
+assert_contains "$hooks_json" "\"beforeSubmitPrompt\"" "cursorhooks should configure beforeSubmitPrompt"
 assert_contains "$hooks_json" "\"stop\"" "cursorhooks should configure stop"
-assert_contains "$hooks_json" "jai hook-session-start" "cursorhooks should point to session start hook command"
+assert_contains "$hooks_json" "jai hook-before-submit" "cursorhooks should point to beforeSubmitPrompt hook command"
 assert_contains "$hooks_json" "jai hook-stop" "cursorhooks should point to stop hook command"
 
 rm -f "$TARGET"
-hook_start_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" "$JAI" hook-session-start --target "$TARGET" <<< '{}')"
-assert_contains "$hook_start_output" "\"continue\": true" "hook-session-start should return continue=true"
-assert_contains "$hook_start_output" "\"JAI_PROJECT\": \"HOOKED\"" "hook-session-start should export project env"
-assert_contains "$hook_start_output" "\"JAI_INDEX\": \"0\"" "hook-session-start should export assigned index"
+hook_before_submit_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"9d3c096f-5f83-4a4d-bddd-73ff6b5fee79"}')"
+assert_contains "$hook_before_submit_output" "\"continue\": true" "hook-before-submit should return continue=true"
+assert_contains "$hook_before_submit_output" "\"JAI_PROJECT\": \"HOOKED\"" "hook-before-submit should export project env"
+assert_contains "$hook_before_submit_output" "\"JAI_INDEX\": \"5fee79\"" "hook-before-submit should export conversation-based ref"
 
-hooked_running="$("$JAI" get -p "HOOKED" -i 0 --target "$TARGET")"
-assert_contains "$hooked_running" "HOOKED#0: RUNNING - Cursor session started" "hook-session-start should create RUNNING task"
+hooked_running="$("$JAI" get -p "HOOKED" -i "5fee79" --target "$TARGET")"
+assert_contains "$hooked_running" "HOOKED#5fee79: RUNNING" "hook-before-submit should create RUNNING task with conversation-based ref"
 
-JAI_PROJECT="HOOKED" JAI_INDEX="0" "$JAI" hook-stop --target "$TARGET" <<< '{}' >/dev/null
-hooked_review="$("$JAI" get -p "HOOKED" -i 0 --target "$TARGET")"
-assert_contains "$hooked_review" "HOOKED#0: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should update task to REVIEW_REQUIRED"
+JAI_PROJECT="HOOKED" JAI_INDEX="5fee79" "$JAI" hook-stop --target "$TARGET" <<< '{}' >/dev/null
+hooked_review="$("$JAI" get -p "HOOKED" -i "5fee79" --target "$TARGET")"
+assert_contains "$hooked_review" "HOOKED#5fee79: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should update task to REVIEW_REQUIRED"
 
 rm -f "$TARGET"
-CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-session-start --target "$TARGET" <<< '{"description":"Implement retries for API gateway"}' >/dev/null
-hooked_custom_desc="$("$JAI" get -p "HOOKDESC" -i 0 --target "$TARGET")"
-assert_contains "$hooked_custom_desc" "HOOKDESC#0: RUNNING - Implement retries for API gateway" "hook-session-start should use payload description when available"
+CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"11111111-1111-1111-1111-111111aaaaaa","description":"Implement retries for API gateway"}' >/dev/null
+hooked_custom_desc="$("$JAI" get -p "HOOKDESC" -i "aaaaaa" --target "$TARGET")"
+assert_contains "$hooked_custom_desc" "HOOKDESC#aaaaaa: RUNNING - Implement retries for API gateway" "hook-before-submit should use payload description when available"
+
+# stop should still resolve when stdin payload is empty, using CURSOR_PROJECT_DIR + single RUNNING ref
+JAI_PROJECT="" JAI_INDEX="" CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-stop --target "$TARGET" <<< '' >/dev/null
+hooked_custom_review="$("$JAI" get -p "HOOKDESC" -i "aaaaaa" --target "$TARGET")"
+assert_contains "$hooked_custom_review" "HOOKDESC#aaaaaa: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should resolve task without payload when project can be inferred"
+
+# stop should prefer payload conversation ref over stale env JAI_INDEX
+CURSOR_PROJECT_DIR="/tmp/HOOKPRIORITY" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","description":"Payload priority task"}' >/dev/null
+JAI_PROJECT="HOOKPRIORITY" JAI_INDEX="4" "$JAI" hook-stop --target "$TARGET" <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","workspace_roots":["/tmp/HOOKPRIORITY"]}' >/dev/null
+hook_priority_review="$("$JAI" get -p "HOOKPRIORITY" -i "bbbbbb" --target "$TARGET")"
+assert_contains "$hook_priority_review" "HOOKPRIORITY#bbbbbb: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should prefer payload conversation ref over stale env"
 
 printf 'Phase 5 (cursorhooks + hook commands) passed.\n'
 
