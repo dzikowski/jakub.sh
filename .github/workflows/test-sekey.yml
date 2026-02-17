@@ -22,6 +22,9 @@ jobs:
 
       - name: Setup Secret Service and Run tests
         run: |
+          # CI runners do not have a regular interactive user session.
+          # So unlike local Docker testing (which can reuse the caller's DBus/keyring session),
+          # CI must bootstrap an isolated DBus + keyring process in this step.
           # Create a private runtime dir for this CI process
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
