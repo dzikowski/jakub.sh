@@ -4,6 +4,7 @@ set -euo pipefail
 
 DEFAULT_TARGET="$HOME/.local/jai-status.md"
 COMMAND="${1:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 print_help() {
   cat <<'EOF'
@@ -14,7 +15,7 @@ Usage:
   jai get    -p <project> [-i <id>] [--target <file>]
   jai rm     -p <project> [-i <id>] [--target <file>]
   jai watch  [--target <file>]
-  jai cursorhooks
+  jai install-cursorhooks [directory]
 
 'queue' adds a QUEUED entry; with no -i it auto-assigns the next numeric id and prints it.
 'start' does the same but sets status to RUNNING.
@@ -26,26 +27,11 @@ Statuses:
   QUEUED
   RUNNING
   REVIEW_REQUIRED
-EOF
-}
 
-print_cursorhooks() {
-  cat <<'EOF'
-{
-  "version": 1,
-  "hooks": {
-    "beforeSubmitPrompt": [
-      {
-        "command": "jai hook-before-submit"
-      }
-    ],
-    "stop": [
-      {
-        "command": "jai hook-stop"
-      }
-    ]
-  }
-}
+'install-cursorhooks' writes:
+  <directory>/.cursor/hooks.json
+
+directory defaults to '~' (your home directory).
 EOF
 }
 
@@ -64,349 +50,67 @@ normalize_and_trim() {
   normalize_text "$1" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//'
 }
 
-extract_hook_description() {
-  local hook_payload="$1"
-  local extracted=""
+expand_install_dir() {
+  local raw="$1"
 
-  if [[ -z "${hook_payload//[[:space:]]/}" ]]; then
-    printf ''
+  if [[ "$raw" == "~" ]]; then
+    printf '%s' "$HOME"
     return 0
   fi
 
-  if command -v python3 >/dev/null 2>&1; then
-    extracted="$(
-      HOOK_PAYLOAD="$hook_payload" python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-try:
-    data = json.loads(payload)
-except Exception:
-    print("")
-    raise SystemExit(0)
-
-paths = [
-    ("description",),
-    ("message",),
-    ("prompt",),
-    ("input", "text"),
-    ("request", "prompt"),
-    ("session", "initialPrompt"),
-]
-
-current = None
-for path in paths:
-    value = data
-    for key in path:
-        if isinstance(value, dict) and key in value:
-            value = value[key]
-        else:
-            value = None
-            break
-    if isinstance(value, str) and value.strip():
-        current = value.strip()
-        break
-
-print(current or "")
-PY
-    )"
+  if [[ "$raw" == ~/* ]]; then
+    printf '%s/%s' "$HOME" "${raw#~/}"
+    return 0
   fi
 
-  normalize_and_trim "$extracted"
+  printf '%s' "$raw"
 }
 
-extract_hook_conversation_ref() {
-  local hook_payload="$1"
-  local extracted=""
+install_cursorhooks() {
+  local install_root="${1:-~}"
+  local expanded_root=""
+  local cursor_dir=""
+  local hooks_json=""
+  local hook_command="jai-cursorhooks"
+  local debug_prefix=""
 
-  if [[ -z "${hook_payload//[[:space:]]/}" ]]; then
-    printf ''
-    return 0
+  expanded_root="$(expand_install_dir "$install_root")"
+  cursor_dir="$expanded_root/.cursor"
+  hooks_json="$cursor_dir/hooks.json"
+
+  if ! command -v jai-cursorhooks >/dev/null 2>&1 && [[ ! -f "$SCRIPT_DIR/jai-cursorhooks.sh" ]]; then
+    error "Missing global hook script. Install jai-cursorhooks into PATH (recommended: ~/.local/bin)."
+  fi
+  mkdir -p "$cursor_dir"
+
+  if [[ "${JAI_DEBUG:-}" == "true" ]]; then
+    debug_prefix="env JAI_DEBUG=true "
   fi
 
-  if command -v python3 >/dev/null 2>&1; then
-    extracted="$(
-      HOOK_PAYLOAD="$hook_payload" python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-try:
-    data = json.loads(payload)
-except Exception:
-    print("")
-    raise SystemExit(0)
-
-paths = [
-    ("conversation_id",),
-    ("conversationId",),
-    ("conversation", "id"),
-    ("conversation", "conversation_id"),
-    ("conversation", "conversationId"),
-    ("request", "conversationId"),
-    ("request", "conversation_id"),
-    ("payload", "conversation_id"),
-    ("payload", "conversationId"),
-]
-
-for path in paths:
-    value = data
-    for key in path:
-        if isinstance(value, dict) and key in value:
-            value = value[key]
-        else:
-            value = None
-            break
-    if isinstance(value, str) and value.strip():
-        print(value.strip())
-        raise SystemExit(0)
-
-print("")
-PY
-    )"
-  fi
-
-  extracted="$(normalize_and_trim "$extracted" | tr -cd '[:alnum:]')"
-  if [[ -n "$extracted" && ${#extracted} -gt 6 ]]; then
-    extracted="${extracted: -6}"
-  fi
-  printf '%s' "$extracted"
-}
-
-extract_hook_workspace_project() {
-  local hook_payload="$1"
-  local extracted=""
-
-  if [[ -z "${hook_payload//[[:space:]]/}" ]]; then
-    printf ''
-    return 0
-  fi
-
-  if command -v python3 >/dev/null 2>&1; then
-    extracted="$(
-      HOOK_PAYLOAD="$hook_payload" python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-try:
-    data = json.loads(payload)
-except Exception:
-    print("")
-    raise SystemExit(0)
-
-root_paths = []
-for key in ("workspace_roots", "workspaceRoots"):
-    roots = data.get(key)
-    if isinstance(roots, list):
-        root_paths.extend(roots)
-
-request = data.get("request")
-if isinstance(request, dict):
-    for key in ("workspace_roots", "workspaceRoots"):
-        roots = request.get(key)
-        if isinstance(roots, list):
-            root_paths.extend(roots)
-
-for first in root_paths:
-    if isinstance(first, str) and first.strip():
-        print(os.path.basename(first.rstrip("/")))
-        raise SystemExit(0)
-
-print("")
-PY
-    )"
-  fi
-
-  normalize_and_trim "$extracted"
-}
-
-run_hook_before_submit() {
-  local hook_target="$DEFAULT_TARGET"
-  local project=""
-  local index=""
-  local start_description="Cursor prompt submitted"
-  local payload_description=""
-  local payload_project=""
-  local payload_ref=""
-  local hook_payload=""
-  local additional_context=""
-
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-    --target)
-      [[ $# -ge 2 ]] || error "Missing value for $1"
-      hook_target="$2"
-      shift 2
-      ;;
-    --target=*)
-      hook_target="${1#--target=}"
-      shift
-      ;;
-    -h | --help)
-      print_help
-      exit 0
-      ;;
-    *)
-      error "Unknown argument: $1"
-      ;;
-    esac
-  done
-
-  hook_payload="$(cat || true)"
-  payload_description="$(extract_hook_description "$hook_payload")"
-  payload_project="$(extract_hook_workspace_project "$hook_payload")"
-  payload_ref="$(extract_hook_conversation_ref "$hook_payload")"
-  if [[ -n "$payload_description" ]]; then
-    start_description="$payload_description"
-  fi
-
-  if [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
-    project="$(basename "$CURSOR_PROJECT_DIR")"
-  fi
-  if [[ -n "$payload_project" ]]; then
-    project="$payload_project"
-  fi
-  project="$(normalize_and_trim "$project")"
-  index="${payload_ref:-${JAI_INDEX:-0}}"
-
-  if [[ -z "$project" ]]; then
-    printf '{ "continue": true }\n'
-    return 0
-  fi
-
-  if index="$("$0" start -p "$project" -i "$index" -d "$start_description" --target "$hook_target" 2>/dev/null)"; then
-    additional_context="JAI task auto-started as ${project}#${index}. Use 'jai queue' for extra tasks and keep descriptions concrete."
-    printf '{ "continue": true, "env": { "JAI_PROJECT": "%s", "JAI_INDEX": "%s", "JAI_REF": "%s", "JAI_TARGET": "%s" }, "additional_context": "%s" }\n' \
-      "$project" "$index" "$index" "$hook_target" "$additional_context"
-    return 0
-  fi
-
-  printf '{ "continue": true, "additional_context": "JAI auto-start failed. Run: REF=$(jai start -p \"%s\" -i <id> -d \"<work description>\") and use that id for jai notify." }\n' "$project"
-}
-
-resolve_single_running_ref() {
-  local hook_target="$1"
-  local project="$2"
-  local refs=""
-  local count=""
-
-  [[ -f "$hook_target" ]] || return 0
-
-  refs="$(
-    awk -v base="$project" '
-    /^# RUNNING$/ { section = "RUNNING"; next }
-    /^# [A-Z_]+$/ { section = "OTHER"; next }
-    {
-      if (section != "RUNNING") next
-      if ($0 !~ /^- \*\*[^*]+\*\*: ?/) next
-      line = $0
-      sub(/^- \*\*/, "", line)
-      marker_index = index(line, "**:")
-      if (marker_index <= 1) next
-      token = substr(line, 1, marker_index - 1)
-      prefix = base "#"
-      if (index(token, prefix) == 1 && length(token) > length(prefix)) {
-        print substr(token, length(prefix) + 1)
+  cat >"$hooks_json" <<EOF
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "${debug_prefix}${hook_command} before-submit"
       }
-    }' "$hook_target"
-  )"
-
-  count="$(printf '%s\n' "$refs" | awk 'NF { c++ } END { print c + 0 }')"
-  if [[ "$count" == "1" ]]; then
-    printf '%s' "$(printf '%s\n' "$refs" | awk 'NF { print; exit }')"
-  fi
-}
-
-resolve_single_running_project() {
-  local hook_target="$1"
-  local projects=""
-  local count=""
-
-  [[ -f "$hook_target" ]] || return 0
-
-  projects="$(
-    awk '
-    /^# RUNNING$/ { section = "RUNNING"; next }
-    /^# [A-Z_]+$/ { section = "OTHER"; next }
-    {
-      if (section != "RUNNING") next
-      if ($0 !~ /^- \*\*[^*]+\*\*: ?/) next
-      line = $0
-      sub(/^- \*\*/, "", line)
-      marker_index = index(line, "**:")
-      if (marker_index <= 1) next
-      token = substr(line, 1, marker_index - 1)
-      hash_index = index(token, "#")
-      if (hash_index > 1) {
-        print substr(token, 1, hash_index - 1)
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "${debug_prefix}${hook_command} after-submit"
       }
-    }' "$hook_target" | awk '!seen[$0]++'
-  )"
-
-  count="$(printf '%s\n' "$projects" | awk 'NF { c++ } END { print c + 0 }')"
-  if [[ "$count" == "1" ]]; then
-    printf '%s' "$(printf '%s\n' "$projects" | awk 'NF { print; exit }')"
-  fi
+    ],
+    "stop": [
+      {
+        "command": "${debug_prefix}${hook_command} stop"
+      }
+    ]
+  }
 }
+EOF
 
-run_hook_stop() {
-  local hook_target="${JAI_TARGET:-$DEFAULT_TARGET}"
-  local project="${JAI_PROJECT:-}"
-  local index="${JAI_INDEX:-${JAI_REF:-}}"
-  local notify_description="Cursor session ended, review required"
-  local hook_payload=""
-  local payload_project=""
-  local payload_ref=""
-
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-    --target)
-      [[ $# -ge 2 ]] || error "Missing value for $1"
-      hook_target="$2"
-      shift 2
-      ;;
-    --target=*)
-      hook_target="${1#--target=}"
-      shift
-      ;;
-    -h | --help)
-      print_help
-      exit 0
-      ;;
-    *)
-      error "Unknown argument: $1"
-      ;;
-    esac
-  done
-
-  hook_payload="$(cat || true)"
-  payload_project="$(extract_hook_workspace_project "$hook_payload")"
-  payload_ref="$(extract_hook_conversation_ref "$hook_payload")"
-
-  if [[ -z "$project" && -n "${CURSOR_PROJECT_DIR:-}" ]]; then
-    project="$(basename "$CURSOR_PROJECT_DIR")"
-  fi
-  if [[ -n "$payload_project" ]]; then
-    project="$payload_project"
-  fi
-  if [[ -z "$project" ]]; then
-    project="$(resolve_single_running_project "$hook_target")"
-  fi
-  project="$(normalize_and_trim "$project")"
-  if [[ -n "$payload_ref" ]]; then
-    index="$payload_ref"
-  fi
-  if [[ -z "$index" && -n "$project" ]]; then
-    index="$(resolve_single_running_ref "$hook_target" "$project")"
-  fi
-
-  if [[ -n "$project" && -n "$index" ]]; then
-    "$0" notify -p "$project" -i "$index" -d "$notify_description" --target "$hook_target" >/dev/null 2>&1 || true
-  fi
-
-  printf '{}\n'
+  printf 'Installed cursor hooks to %s\n' "$cursor_dir"
 }
 
 validate_index() {
@@ -435,20 +139,12 @@ if [[ "$COMMAND" == "--help" || "$COMMAND" == "-h" || -z "$COMMAND" ]]; then
   exit 0
 fi
 
-if [[ "$COMMAND" == "cursorhooks" ]]; then
-  print_cursorhooks
-  exit 0
-fi
-
-if [[ "$COMMAND" == "hook-before-submit" ]]; then
+if [[ "$COMMAND" == "install-cursorhooks" ]]; then
   shift
-  run_hook_before_submit "$@"
-  exit 0
-fi
-
-if [[ "$COMMAND" == "hook-stop" ]]; then
-  shift
-  run_hook_stop "$@"
+  if [[ $# -gt 1 ]]; then
+    error "install-cursorhooks accepts at most one argument: [directory]"
+  fi
+  install_cursorhooks "${1:-~}"
   exit 0
 fi
 

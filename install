@@ -39,6 +39,10 @@ print_error() {
   echo -e "${RED}✗ ${1}${NC}"
 }
 
+print_warning() {
+  echo -e "${YELLOW}! ${1}${NC}"
+}
+
 echo ""
 echo -e "${BOLD}jakub.sh${NC} tools installer${NC}"
 echo ""
@@ -48,6 +52,7 @@ mkdir -p ~/.local/bin
 
 SEKEY_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/sekey/sekey.sh"
 JAI_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/jai/jai.sh"
+JAI_HOOKS_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/jai/jai-cursorhooks.sh"
 TEMP_FILE=$(mktemp)
 
 # installing sekey
@@ -76,15 +81,35 @@ else
   exit 1
 fi
 
+# installing jai-cursorhooks
+print_step "Downloading jai-cursorhooks..."
+
+if curl -fSsL "$JAI_HOOKS_URL" -o "$TEMP_FILE"; then
+  chmod +x "$TEMP_FILE"
+  mv "$TEMP_FILE" "$HOME/.local/bin/jai-cursorhooks"
+  print_success "Installed: jai-cursorhooks"
+else
+  rm -f "$TEMP_FILE"
+  print_error "Download failed: jai-cursorhooks"
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  print_warning "jq not found. jai-cursorhooks JSON parsing needs jq."
+  print_warning "Install jq, then run: jai install-cursorhooks"
+fi
+
 echo ""
 print_success "Installation complete!"
+echo ""
+echo "Optional Cursor integration:"
+echo "  jai install-cursorhooks [directory]   # writes .cursor/hooks.json (directory defaults to ~)"
 echo ""
 
 if [[ ":${PATH}:" == *":${HOME}/.local/bin:"* ]]; then
   echo "Run:"
   echo "  sekey --help"
   echo "  jai --help"
-  echo "  jai cursorhooks"
   echo ""
   echo -e "${DIM}See more at ${BLUE}https://jakub.sh${NC}"
 else
