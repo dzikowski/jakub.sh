@@ -33,13 +33,13 @@ jai notify -p backend -d "Done, ready for review"
 
 ```bash
 # Queue a new task (QUEUED, auto-assigns numeric index when -i omitted, prints id)
-jai queue -p <project> -d <description> [-i <id>] [--target <file>]
+jai queue -p <project> -d <description> [-i <id>] [-url <url>] [--target <file>]
 
 # Start a new task (RUNNING, auto-assigns numeric index when -i omitted, prints id)
-jai start -p <project> -d <description> [-i <id>] [--target <file>]
+jai start -p <project> -d <description> [-i <id>] [-url <url>] [--target <file>]
 
 # Mark a task as review required (-d optional; reuses current description)
-jai notify -p <project> [-d <description>] [-i <id>] [--target <file>]
+jai notify -p <project> [-d <description>] [-i <id>] [-url <url>] [--target <file>]
 
 # Get status
 jai get -p <project> [-i <id>] [--target <file>]
@@ -91,8 +91,26 @@ jai notify -p agent-a -i 4
 ```
 
 `stop` hook handling keeps the current task description when moving to `REVIEW_REQUIRED`.
+If `-url` is omitted on `notify`, Jai keeps the existing task URL.
 
 Without `-i`, `get` and `rm` affect all entries for that project (`project#...`).
+
+## Deep links
+
+Use optional `-url` to attach a URL (for example `cursor://...`) to a task:
+
+```bash
+jai start -p backend -d "Fix flaky test" -i 7 -url "cursor://chat/open?conversation=<id>"
+```
+
+In the markdown status file, Jai renders linked entries as:
+
+```text
+- [backend](cursor://chat/open?conversation=<id>)#7: Fix flaky test
+```
+
+Cursor hook integration derives `cursor://file/...` links from workspace/project path.
+If a hook payload explicitly provides a URL field, Jai uses that as an override.
 
 ## Watch mode
 

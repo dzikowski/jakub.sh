@@ -29,6 +29,15 @@ assert_not_contains() {
   fi
 }
 
+assert_file_contains() {
+  local path="$1"
+  local needle="$2"
+  local msg="$3"
+  local file_contents=""
+  file_contents="$(<"$path")"
+  assert_contains "$file_contents" "$needle" "$msg"
+}
+
 cleanup() {
   rm -f "$TARGET"
   rm -rf "$INSTALL_DIR" "$INSTALL_DIR_DEBUG"
@@ -168,6 +177,7 @@ hook_before_submit_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" JAI_BIN="$JAI" JAI
 assert_contains "$hook_before_submit_output" "\"continue\": true" "hook-before-submit should return continue=true"
 assert_contains "$hook_before_submit_output" "\"JAI_PROJECT\": \"HOOKED\"" "hook-before-submit should export project env"
 assert_contains "$hook_before_submit_output" "\"JAI_INDEX\": \"5fee79\"" "hook-before-submit should export conversation-based ref"
+assert_contains "$hook_before_submit_output" "\"JAI_URL\": \"cursor://file//tmp/HOOKED/\"" "hook-before-submit should derive URL from project path"
 
 hooked_running="$("$JAI" get -p "HOOKED" -i "5fee79" --target "$TARGET")"
 assert_contains "$hooked_running" "HOOKED#5fee79: RUNNING" "hook-before-submit should create RUNNING task with conversation-based ref"
@@ -201,6 +211,21 @@ debug_log_contents="$(<"$debug_log_file")"
 assert_contains "$debug_log_contents" "\"message\":\"noop\"" "debug log should include raw payload for unimplemented hooks"
 
 printf 'Phase 5 (install-cursorhooks + hook commands) passed.\n'
+
+# Phase 6: optional URL should render linked markdown and persist across notify
+rm -f "$TARGET"
+link_idx="$("$JAI" start -p "CURSORLINK" -d "Open editor via deep link" -url "cursor://workspace/file?path=/tmp/file.sh" --target "$TARGET")"
+[[ "$link_idx" == "0" ]] || { printf 'FAIL: Expected CURSORLINK start index 0, got %s\n' "$link_idx" >&2; exit 1; }
+
+assert_file_contains "$TARGET" "- [CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0: Open editor via deep link" "start with -url should render markdown link"
+
+"$JAI" notify -p "CURSORLINK" -i "0" --target "$TARGET" >/dev/null
+assert_file_contains "$TARGET" "- [CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0: Open editor via deep link" "notify without -url should preserve existing url"
+
+CURSOR_PROJECT_DIR="/tmp/LINKHOOK" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" before-submit <<< '{"conversation_id":"55555555-5555-5555-5555-555555eeffee","description":"Hook link task","url":"cursor://chat/open?conversation=55555555-5555-5555-5555-555555eeffee"}' >/dev/null
+assert_file_contains "$TARGET" "- [LINKHOOK](cursor://chat/open?conversation=55555555-5555-5555-5555-555555eeffee)#eeffee: Hook link task" "hook-before-submit should persist payload url"
+
+printf 'Phase 6 (URL deep links) passed.\n'
 
 printf '\nAll verifications passed.\n\n'
 printf 'Final target file contents:\n'
