@@ -27,8 +27,8 @@ jai rm -p <project> [-i <id>] [--target <file>]
 # Watch status file (refresh each second)
 jai watch [--target <file>]
 
-# Print global Cursor hooks JSON snippet
-jai cursorhooks
+# Install Cursor hooks globally (default: ~)
+jai install-cursorhooks [directory]
 ```
 
 Allowed statuses:
@@ -67,7 +67,7 @@ jai notify -p agent-a -d "Default index done"
 jai notify -p agent-a -i 4
 ```
 
-`hook-stop` always sets a fixed review description (`Cursor session ended, review required`).
+`stop` hook handling keeps the current task description when moving to `REVIEW_REQUIRED`.
 
 Without `-i`, `get` and `rm` affect all entries for that project (`project#...`).
 
@@ -91,17 +91,44 @@ Run end-to-end checks with:
 
 ```bash
 jai/test.jai.sh
+jai/test.jai-cursorhooks.sh
 ```
 
 ## Cursor hooks
 
-Install this output as `~/.cursor/hooks.json`:
+Install hooks (global by default):
 
 ```bash
-jai cursorhooks > ~/.cursor/hooks.json
+jai install-cursorhooks
 ```
 
-The generated global hooks call:
+Install hooks into a specific directory:
 
-- `jai hook-before-submit` to upsert a RUNNING task on each prompt using `conversation_id` suffix (`last 6 chars`) as task id
-- `jai hook-stop` to auto-notify REVIEW_REQUIRED for that same task when the session ends
+```bash
+jai install-cursorhooks /path/to/workspace
+```
+
+This command writes:
+
+- `<directory>/.cursor/hooks.json`
+
+It expects `jai-cursorhooks` to be globally available in `PATH` (for example in `~/.local/bin`).
+
+Configured hook actions:
+
+- `beforeSubmitPrompt` -> `jai-cursorhooks before-submit` (starts/updates RUNNING with conversation-based id)
+- `stop` -> `jai-cursorhooks stop` (moves task to REVIEW_REQUIRED without changing description)
+- `afterAgentResponse` -> `jai-cursorhooks after-submit` (currently no-op)
+
+Debug mode:
+
+```bash
+JAI_DEBUG=true jai install-cursorhooks
+```
+
+When installed this way, each hook command in `hooks.json` is prefixed with `JAI_DEBUG=true`.
+At runtime in debug mode, hook payloads are appended to:
+
+- `/tmp/jai/<YYYY-MM-DD>-<conversation_id>.log`
+
+Unimplemented hooks intentionally do nothing (and only append payload logs in debug mode).

@@ -37,5 +37,5 @@ jai notify -p api-agent -i 5fee79
 jai rm -p api-agent -i 1
 jai get -p api-agent
 jai watch
-jai cursorhooks
+jai install-cursorhooks
 ```

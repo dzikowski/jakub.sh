@@ -4,7 +4,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JAI="$SCRIPT_DIR/jai.sh"
+JAI_HOOKS="$SCRIPT_DIR/jai-cursorhooks.sh"
 TARGET="$SCRIPT_DIR/.verify-status.md"
+INSTALL_DIR="$SCRIPT_DIR/.verify-cursor-install"
+INSTALL_DIR_DEBUG="$SCRIPT_DIR/.verify-cursor-install-debug"
 
 assert_contains() {
   local haystack="$1"
@@ -28,6 +31,7 @@ assert_not_contains() {
 
 cleanup() {
   rm -f "$TARGET"
+  rm -rf "$INSTALL_DIR" "$INSTALL_DIR_DEBUG"
 }
 trap cleanup EXIT
 
@@ -142,16 +146,25 @@ assert_contains "$gamma_review" "GAMMA#0: REVIEW_REQUIRED - Done, ready for revi
 
 printf 'Phase 4 (start) passed.\n'
 
-# Phase 5: cursorhooks output and hook command flow
-hooks_json="$("$JAI" cursorhooks)"
-assert_contains "$hooks_json" "\"version\": 1" "cursorhooks should return hooks schema version"
-assert_contains "$hooks_json" "\"beforeSubmitPrompt\"" "cursorhooks should configure beforeSubmitPrompt"
-assert_contains "$hooks_json" "\"stop\"" "cursorhooks should configure stop"
-assert_contains "$hooks_json" "jai hook-before-submit" "cursorhooks should point to beforeSubmitPrompt hook command"
-assert_contains "$hooks_json" "jai hook-stop" "cursorhooks should point to stop hook command"
+# Phase 5: install-cursorhooks + hook command flow via jai-cursorhooks
+rm -rf "$INSTALL_DIR" "$INSTALL_DIR_DEBUG"
+PATH="$SCRIPT_DIR:$PATH" "$JAI" install-cursorhooks "$INSTALL_DIR" >/dev/null
+[[ -f "$INSTALL_DIR/.cursor/hooks.json" ]] || { printf 'FAIL: hooks.json was not created\n' >&2; exit 1; }
+
+installed_hooks_json="$(<"$INSTALL_DIR/.cursor/hooks.json")"
+assert_contains "$installed_hooks_json" "\"version\": 1" "install-cursorhooks should write hooks schema version"
+assert_contains "$installed_hooks_json" "\"beforeSubmitPrompt\"" "install-cursorhooks should configure beforeSubmitPrompt"
+assert_contains "$installed_hooks_json" "\"afterAgentResponse\"" "install-cursorhooks should configure afterAgentResponse"
+assert_contains "$installed_hooks_json" "\"stop\"" "install-cursorhooks should configure stop"
+assert_contains "$installed_hooks_json" "jai-cursorhooks before-submit" "install-cursorhooks should point to global hook command"
+assert_not_contains "$installed_hooks_json" "JAI_DEBUG=true" "install-cursorhooks should not prepend debug env by default"
+
+PATH="$SCRIPT_DIR:$PATH" JAI_DEBUG=true "$JAI" install-cursorhooks "$INSTALL_DIR_DEBUG" >/dev/null
+debug_hooks_json="$(<"$INSTALL_DIR_DEBUG/.cursor/hooks.json")"
+assert_contains "$debug_hooks_json" "JAI_DEBUG=true" "install-cursorhooks should prepend debug env when JAI_DEBUG=true"
 
 rm -f "$TARGET"
-hook_before_submit_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"9d3c096f-5f83-4a4d-bddd-73ff6b5fee79"}')"
+hook_before_submit_output="$(CURSOR_PROJECT_DIR="/tmp/HOOKED" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" before-submit <<< '{"conversation_id":"9d3c096f-5f83-4a4d-bddd-73ff6b5fee79"}')"
 assert_contains "$hook_before_submit_output" "\"continue\": true" "hook-before-submit should return continue=true"
 assert_contains "$hook_before_submit_output" "\"JAI_PROJECT\": \"HOOKED\"" "hook-before-submit should export project env"
 assert_contains "$hook_before_submit_output" "\"JAI_INDEX\": \"5fee79\"" "hook-before-submit should export conversation-based ref"
@@ -159,27 +172,35 @@ assert_contains "$hook_before_submit_output" "\"JAI_INDEX\": \"5fee79\"" "hook-b
 hooked_running="$("$JAI" get -p "HOOKED" -i "5fee79" --target "$TARGET")"
 assert_contains "$hooked_running" "HOOKED#5fee79: RUNNING" "hook-before-submit should create RUNNING task with conversation-based ref"
 
-JAI_PROJECT="HOOKED" JAI_INDEX="5fee79" "$JAI" hook-stop --target "$TARGET" <<< '{}' >/dev/null
+JAI_PROJECT="HOOKED" JAI_INDEX="5fee79" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" stop <<< '{}' >/dev/null
 hooked_review="$("$JAI" get -p "HOOKED" -i "5fee79" --target "$TARGET")"
-assert_contains "$hooked_review" "HOOKED#5fee79: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should update task to REVIEW_REQUIRED"
+assert_contains "$hooked_review" "HOOKED#5fee79: REVIEW_REQUIRED - Cursor prompt submitted" "hook-stop should preserve current description"
 
 rm -f "$TARGET"
-CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"11111111-1111-1111-1111-111111aaaaaa","description":"Implement retries for API gateway"}' >/dev/null
+CURSOR_PROJECT_DIR="/tmp/HOOKDESC" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" before-submit <<< '{"conversation_id":"11111111-1111-1111-1111-111111aaaaaa","description":"Implement retries for API gateway"}' >/dev/null
 hooked_custom_desc="$("$JAI" get -p "HOOKDESC" -i "aaaaaa" --target "$TARGET")"
 assert_contains "$hooked_custom_desc" "HOOKDESC#aaaaaa: RUNNING - Implement retries for API gateway" "hook-before-submit should use payload description when available"
 
 # stop should still resolve when stdin payload is empty, using CURSOR_PROJECT_DIR + single RUNNING ref
-JAI_PROJECT="" JAI_INDEX="" CURSOR_PROJECT_DIR="/tmp/HOOKDESC" "$JAI" hook-stop --target "$TARGET" <<< '' >/dev/null
+JAI_PROJECT="" JAI_INDEX="" CURSOR_PROJECT_DIR="/tmp/HOOKDESC" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" stop <<< '' >/dev/null
 hooked_custom_review="$("$JAI" get -p "HOOKDESC" -i "aaaaaa" --target "$TARGET")"
-assert_contains "$hooked_custom_review" "HOOKDESC#aaaaaa: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should resolve task without payload when project can be inferred"
+assert_contains "$hooked_custom_review" "HOOKDESC#aaaaaa: REVIEW_REQUIRED - Implement retries for API gateway" "hook-stop should preserve existing description when project is inferred"
 
 # stop should prefer payload conversation ref over stale env JAI_INDEX
-CURSOR_PROJECT_DIR="/tmp/HOOKPRIORITY" "$JAI" hook-before-submit --target "$TARGET" <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","description":"Payload priority task"}' >/dev/null
-JAI_PROJECT="HOOKPRIORITY" JAI_INDEX="4" "$JAI" hook-stop --target "$TARGET" <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","workspace_roots":["/tmp/HOOKPRIORITY"]}' >/dev/null
+CURSOR_PROJECT_DIR="/tmp/HOOKPRIORITY" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" before-submit <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","description":"Payload priority task"}' >/dev/null
+JAI_PROJECT="HOOKPRIORITY" JAI_INDEX="4" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" stop <<< '{"conversation_id":"22222222-2222-2222-2222-222222bbbbbb","workspace_roots":["/tmp/HOOKPRIORITY"]}' >/dev/null
 hook_priority_review="$("$JAI" get -p "HOOKPRIORITY" -i "bbbbbb" --target "$TARGET")"
-assert_contains "$hook_priority_review" "HOOKPRIORITY#bbbbbb: REVIEW_REQUIRED - Cursor session ended, review required" "hook-stop should prefer payload conversation ref over stale env"
+assert_contains "$hook_priority_review" "HOOKPRIORITY#bbbbbb: REVIEW_REQUIRED - Payload priority task" "hook-stop should preserve existing description and prefer payload conversation ref"
 
-printf 'Phase 5 (cursorhooks + hook commands) passed.\n'
+# unimplemented hooks should no-op and still append debug payload
+debug_log_file="/tmp/jai/$(date +%F)-33333333-3333-3333-3333-333333cccccc.log"
+rm -f "$debug_log_file"
+JAI_DEBUG=true JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" after-submit <<< '{"conversation_id":"33333333-3333-3333-3333-333333cccccc","message":"noop"}' >/dev/null
+[[ -f "$debug_log_file" ]] || { printf 'FAIL: Expected debug payload log to be created for unimplemented hook\n' >&2; exit 1; }
+debug_log_contents="$(<"$debug_log_file")"
+assert_contains "$debug_log_contents" "\"message\":\"noop\"" "debug log should include raw payload for unimplemented hooks"
+
+printf 'Phase 5 (install-cursorhooks + hook commands) passed.\n'
 
 printf '\nAll verifications passed.\n\n'
 printf 'Final target file contents:\n'
