@@ -22,8 +22,24 @@ jobs:
       - name: Start local HTTP server for install script
         run: php -S 127.0.0.1:8000 -t "$GITHUB_WORKSPACE" >/tmp/php-server.log 2>&1 &
 
+      - name: Wait for local HTTP server
+        run: |
+          set -euo pipefail
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8000/install >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Local PHP server did not become ready."
+          cat /tmp/php-server.log || true
+          exit 1
+
       - name: Install tools from local server
-        run: sleep 2 && curl -fsSL http://127.0.0.1:8000/install | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 1 --retry-connrefused -fsSL http://127.0.0.1:8000/install \
+            | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
 
       - name: Verify installed tool versions
         run: |

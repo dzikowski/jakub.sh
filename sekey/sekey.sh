@@ -115,9 +115,14 @@ elif [[ "$PLATFORM" == "linux" ]]; then
     secret-tool clear service "$KEYCHAIN_SERVICE" env "$env_name" >/dev/null 2>&1 || true
   }
 
-  check_secret_tool
-  ensure_secret_service
 fi
+
+require_secret_backend() {
+  if [[ "$PLATFORM" == "linux" ]]; then
+    check_secret_tool
+    ensure_secret_service
+  fi
+}
 
 # --- Sanitization ----------------------------------------------------------
 
@@ -170,6 +175,7 @@ case "${1:-}" in
 
 set)
   [[ $# -ge 2 ]] || error "Usage: $0 set ENV_NAME"
+  require_secret_backend
   env_name="$2"
 
   validate_env_name "$env_name"
@@ -185,6 +191,7 @@ set)
 
 delete)
   [[ $# -ge 2 ]] || error "Usage: $0 delete ENV_NAME"
+  require_secret_backend
   env_name="$2"
 
   validate_env_name "$env_name"
@@ -198,6 +205,7 @@ delete)
   ;;
 
 --env | --env=*)
+  require_secret_backend
   declare -a env_names=()
   declare -a command_args=()
   declare -a secrets=()
