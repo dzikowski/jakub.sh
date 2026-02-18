@@ -310,8 +310,33 @@ if [[ -f "$target" ]]; then
     return (parsed_token != "" && parsed_desc != "")
   }
   function parse_linked_entry(raw,    line, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
-    if (raw !~ /^- \[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?: ?/) return 0
     line = raw
+    if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+      sub(/^- \*\*\[/, "", line)
+      close_label = index(line, "](")
+      if (close_label <= 1) return 0
+      project_name = normalize(substr(line, 1, close_label - 1))
+      after_label = substr(line, close_label + 2)
+      close_url = index(after_label, ")")
+      if (close_url <= 0) return 0
+      parsed_url = substr(after_label, 1, close_url - 1)
+      after_url = substr(after_label, close_url + 1)
+      if (substr(after_url, 1, 1) == "#") {
+        colon_idx = index(after_url, "**:")
+        if (colon_idx <= 2) return 0
+        ref = substr(after_url, 2, colon_idx - 2)
+        parsed_token = normalize(project_name "#" ref)
+        parsed_desc = normalize(substr(after_url, colon_idx + 3))
+      } else if (substr(after_url, 1, 3) == "**:") {
+        parsed_token = normalize(project_name)
+        parsed_desc = normalize(substr(after_url, 4))
+      } else {
+        return 0
+      }
+      return (parsed_token != "" && parsed_desc != "")
+    }
+
+    if (raw !~ /^- \[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?: ?/) return 0
     sub(/^- \[/, "", line)
     close_label = index(line, "](")
     if (close_label <= 1) return 0
@@ -344,7 +369,7 @@ if [[ -f "$target" ]]; then
     parsed_token = ""
     parsed_desc = ""
     parsed_url = ""
-    if (parse_old_entry($0) || parse_linked_entry($0)) {
+    if (parse_linked_entry($0) || parse_old_entry($0)) {
       print parsed_token "\t" section "\t" parsed_desc "\t" parsed_url
     }
   }' "$target" >>"$records_file"
@@ -469,9 +494,9 @@ for section in REVIEW_REQUIRED RUNNING QUEUED; do
           entry_ref="${entry_project#*#}"
         fi
         if [[ -n "$entry_ref" && "$entry_ref" != "$entry_project" ]]; then
-          printf -- '- [%s](%s)#%s: %s\n' "$entry_name" "$entry_url" "$entry_ref" "$entry_description" >>"$tmp_file"
+          printf -- '- **[%s](%s)#%s**: %s\n' "$entry_name" "$entry_url" "$entry_ref" "$entry_description" >>"$tmp_file"
         else
-          printf -- '- [%s](%s): %s\n' "$entry_name" "$entry_url" "$entry_description" >>"$tmp_file"
+          printf -- '- **[%s](%s)**: %s\n' "$entry_name" "$entry_url" "$entry_description" >>"$tmp_file"
         fi
       else
         printf -- '- **%s**: %s\n' "$entry_project" "$entry_description" >>"$tmp_file"

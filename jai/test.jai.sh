@@ -217,13 +217,13 @@ rm -f "$TARGET"
 link_idx="$("$JAI" start -p "CURSORLINK" -d "Open editor via deep link" -url "cursor://workspace/file?path=/tmp/file.sh" --target "$TARGET")"
 [[ "$link_idx" == "0" ]] || { printf 'FAIL: Expected CURSORLINK start index 0, got %s\n' "$link_idx" >&2; exit 1; }
 
-assert_file_contains "$TARGET" "- [CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0: Open editor via deep link" "start with -url should render markdown link"
+assert_file_contains "$TARGET" "- **[CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0**: Open editor via deep link" "start with -url should render bold markdown link"
 
 "$JAI" notify -p "CURSORLINK" -i "0" --target "$TARGET" >/dev/null
-assert_file_contains "$TARGET" "- [CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0: Open editor via deep link" "notify without -url should preserve existing url"
+assert_file_contains "$TARGET" "- **[CURSORLINK](cursor://workspace/file?path=/tmp/file.sh)#0**: Open editor via deep link" "notify without -url should preserve existing url"
 
 CURSOR_PROJECT_DIR="/tmp/LINKHOOK" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" before-submit <<< '{"conversation_id":"55555555-5555-5555-5555-555555eeffee","description":"Hook link task","url":"cursor://chat/open?conversation=55555555-5555-5555-5555-555555eeffee"}' >/dev/null
-assert_file_contains "$TARGET" "- [LINKHOOK](cursor://chat/open?conversation=55555555-5555-5555-5555-555555eeffee)#eeffee: Hook link task" "hook-before-submit should persist payload url"
+assert_file_contains "$TARGET" "- **[LINKHOOK](cursor://chat/open?conversation=55555555-5555-5555-5555-555555eeffee)#eeffee**: Hook link task" "hook-before-submit should persist payload url"
 
 printf 'Phase 6 (URL deep links) passed.\n'
 

@@ -67,7 +67,7 @@ before_submit_with_url="$(
 )"
 assert_contains "$before_submit_with_url" "\"JAI_URL\": \"cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc\"" "before-submit should propagate url payload"
 target_contents="$(<"$TARGET")"
-assert_contains "$target_contents" "- [CURSORHOOKSLINK](cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc)#123abc: Open deep link" "status file should render linked project format"
+assert_contains "$target_contents" "- **[CURSORHOOKSLINK](cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc)#123abc**: Open deep link" "status file should render linked project format"
 
 # 3) Unimplemented hooks should no-op and return empty JSON.
 after_submit_output="$(JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" after-submit <<< '{"conversation_id":"noop"}')"

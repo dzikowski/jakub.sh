@@ -106,7 +106,7 @@ jai start -p backend -d "Fix flaky test" -i 7 -url "cursor://chat/open?conversat
 In the markdown status file, Jai renders linked entries as:
 
 ```text
-- [backend](cursor://chat/open?conversation=<id>)#7: Fix flaky test
+- **[backend](cursor://chat/open?conversation=<id>)#7**: Fix flaky test
 ```
 
 Cursor hook integration derives `cursor://file/...` links from workspace/project path.

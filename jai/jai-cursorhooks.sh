@@ -163,6 +163,27 @@ resolve_single_running_ref() {
   refs="$(
     awk -v base="$project" '
     function parse_token(raw,    line, marker_index, token, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
+      if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*\[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, "**:")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        if (substr(after_url, 1, 3) == "**:") {
+          return project_name
+        }
+        return ""
+      }
       if (raw ~ /^- \*\*[^*]+\*\*: ?/) {
         line = raw
         sub(/^- \*\*/, "", line)
@@ -220,6 +241,27 @@ resolve_single_running_project() {
   projects="$(
     awk '
     function parse_token(raw,    line, marker_index, token, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
+      if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*\[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, "**:")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        if (substr(after_url, 1, 3) == "**:") {
+          return project_name
+        }
+        return ""
+      }
       if (raw ~ /^- \*\*[^*]+\*\*: ?/) {
         line = raw
         sub(/^- \*\*/, "", line)
