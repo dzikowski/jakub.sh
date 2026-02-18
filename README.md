@@ -8,6 +8,24 @@ curl jakub.sh/install | bash
 
 Installs all tools into `~/.local/bin`.
 
+## jai
+
+Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. You can install Cursor Hooks (note: it overrides existing hooks, and uses global if directory parameter is missing):
+
+ (=> [README.md](jai/README.md)).
+
+```bash
+jai install-cursorhooks [directory]
+```
+
+Watch the progress:
+
+```bash
+jai watch
+```
+
+You can also open the markdown status file (`~/.local/jai-status.md`) in any tool that supports live-reloading from disk (like Typora, Obsidian, Cursor).
+
 
 ## sekey
 
@@ -26,16 +44,3 @@ Sandbox the secret. The command is executed with env injected from secrets, and 
 sekey --env MY_SECRET command.sh
 ```
 
-## jai
-
-Task/agent status tracker (=> [README.md](jai/README.md)).
-
-```bash
-jai start -p api-agent -d "Implementing retries"
-jai queue -p api-agent -d "New sub-task"
-jai notify -p api-agent -i 5fee79
-jai rm -p api-agent -i 1
-jai get -p api-agent
-jai watch
-jai install-cursorhooks
-```

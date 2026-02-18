@@ -1,10 +1,33 @@
 # jai
 
-Track agent/task status in a shared markdown file.
+Jai is the core workflow tool in this repo: it tracks agent/task progress across multiple Cursor IDE windows and CLI sessions in a shared markdown status file.
 
 Default status file:
 
 `~/.local/jai-status.md`
+
+## What jai is for
+
+Use Jai when you want one live source of truth for active work:
+
+- Start or queue work from terminal scripts.
+- Auto-update status from Cursor hooks during agent sessions.
+- Watch progress in real time from any markdown viewer.
+
+This keeps handoffs clear and prevents duplicated effort when several agents/sessions run in parallel.
+
+## Quick start
+
+```bash
+# 1) Start tracking a task
+jai start -p backend -d "Investigate flaky test"
+
+# 2) Watch updates live
+jai watch
+
+# 3) Mark work as ready for review
+jai notify -p backend -d "Done, ready for review"
+```
 
 ## Commands
 
