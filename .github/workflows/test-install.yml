@@ -1,0 +1,32 @@
+name: Test install script
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start local HTTP server for install script
+        run: php -S 127.0.0.1:8000 -t "$GITHUB_WORKSPACE" >/tmp/php-server.log 2>&1 &
+
+      - name: Install tools from local server
+        run: curl -fsSL http://127.0.0.1:8000/install | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
+
+      - name: Verify installed tool versions
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          sekey version
+          jai version

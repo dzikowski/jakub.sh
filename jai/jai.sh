@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+VERSION="0.1.0"
 DEFAULT_TARGET="$HOME/.local/jai-status.md"
 COMMAND="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +17,7 @@ Usage:
   jai rm     -p <project> [-i <id>] [--target <file>]
   jai watch  [--target <file>]
   jai install-cursorhooks [directory]
+  jai version
 
 'queue' adds a QUEUED entry; with no -i it auto-assigns the next numeric id and prints it.
 'start' does the same but sets status to RUNNING.
@@ -136,6 +138,11 @@ target="$DEFAULT_TARGET"
 
 if [[ "$COMMAND" == "--help" || "$COMMAND" == "-h" || -z "$COMMAND" ]]; then
   print_help
+  exit 0
+fi
+
+if [[ "$COMMAND" == "version" ]]; then
+  echo "$VERSION"
   exit 0
 fi
 
