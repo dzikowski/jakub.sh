@@ -23,10 +23,12 @@ jobs:
         run: php -S 127.0.0.1:8000 -t "$GITHUB_WORKSPACE" >/tmp/php-server.log 2>&1 &
 
       - name: Install tools from local server
-        run: curl -fsSL http://127.0.0.1:8000/install | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
+        run: sleep 2 && curl -fsSL http://127.0.0.1:8000/install | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
 
       - name: Verify installed tool versions
         run: |
+          "$HOME/.local/bin/sekey" version
+          "$HOME/.local/bin/jai" version
           export PATH="$HOME/.local/bin:$PATH"
           sekey version
           jai version
