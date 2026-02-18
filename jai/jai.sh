@@ -71,25 +71,17 @@ install_cursorhooks() {
   local expanded_root=""
   local cursor_dir=""
   local hooks_json=""
-  local hook_command=""
-  local hook_command_escaped=""
+  local hook_command="jai-cursorhooks"
   local debug_prefix=""
 
   expanded_root="$(expand_install_dir "$install_root")"
   cursor_dir="$expanded_root/.cursor"
   hooks_json="$cursor_dir/hooks.json"
 
-  if hook_command="$(command -v jai-cursorhooks 2>/dev/null)"; then
-    :
-  elif [[ -f "$SCRIPT_DIR/jai-cursorhooks.sh" ]]; then
-    hook_command="$SCRIPT_DIR/jai-cursorhooks.sh"
-  fi
-
-  if [[ -z "$hook_command" ]]; then
+  if ! command -v jai-cursorhooks >/dev/null 2>&1 && [[ ! -f "$SCRIPT_DIR/jai-cursorhooks.sh" ]]; then
     error "Missing global hook script. Install jai-cursorhooks into PATH (recommended: ~/.local/bin)."
   fi
   mkdir -p "$cursor_dir"
-  printf -v hook_command_escaped '%q' "$hook_command"
 
   if [[ "${JAI_DEBUG:-}" == "true" ]]; then
     debug_prefix="env JAI_DEBUG=true "
@@ -101,17 +93,17 @@ install_cursorhooks() {
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "${debug_prefix}${hook_command_escaped} before-submit"
+        "command": "${debug_prefix}${hook_command} before-submit"
       }
     ],
     "afterAgentResponse": [
       {
-        "command": "${debug_prefix}${hook_command_escaped} after-submit"
+        "command": "${debug_prefix}${hook_command} after-submit"
       }
     ],
     "stop": [
       {
-        "command": "${debug_prefix}${hook_command_escaped} stop"
+        "command": "${debug_prefix}${hook_command} stop"
       }
     ]
   }
