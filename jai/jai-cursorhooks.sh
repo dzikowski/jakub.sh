@@ -47,6 +47,31 @@ normalize_and_trim() {
   normalize_text "$1" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//'
 }
 
+normalize_url() {
+  printf '%s' "$1" \
+    | tr -d '\r\n\t ' \
+    | tr -cd '[:alnum:][:punct:]'
+}
+
+encode_path_for_cursor_url() {
+  local path="$1"
+  path="${path// /%20}"
+  path="${path//#/%23}"
+  printf '%s' "$path"
+}
+
+build_cursor_url_from_path() {
+  local path="$1"
+  local encoded=""
+  local normalized=""
+
+  normalized="$(normalize_and_trim "$path")"
+  [[ -n "$normalized" ]] || return 0
+
+  encoded="$(encode_path_for_cursor_url "$normalized")"
+  printf 'cursor://file/%s/' "$encoded"
+}
+
 read_hook_payload() {
   cat || true
 }
@@ -109,6 +134,24 @@ extract_hook_workspace_project() {
   normalize_and_trim "$extracted"
 }
 
+extract_hook_workspace_root() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.workspace_roots[]?, .workspaceRoots[]?, .request?.workspace_roots[]?, .request?.workspaceRoots[]?] | map(select(type == "string")) | map(gsub("/+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+
+  normalize_and_trim "$extracted"
+}
+
+extract_hook_url() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.url?, .cursor_url?, .cursorUrl?, .deep_link?, .deepLink?, .link?, .session?.url?, .request?.url?, .request?.session?.url?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+
+  normalize_url "$extracted"
+}
+
 resolve_single_running_ref() {
   local hook_target="$1"
   local project="$2"
@@ -119,16 +162,62 @@ resolve_single_running_ref() {
 
   refs="$(
     awk -v base="$project" '
+    function parse_token(raw,    line, marker_index, token, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
+      if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*\[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, "**:")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        if (substr(after_url, 1, 3) == "**:") {
+          return project_name
+        }
+        return ""
+      }
+      if (raw ~ /^- \*\*[^*]+\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*/, "", line)
+        marker_index = index(line, "**:")
+        if (marker_index <= 1) return ""
+        token = substr(line, 1, marker_index - 1)
+        return token
+      }
+      if (raw ~ /^- \[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?: ?/) {
+        line = raw
+        sub(/^- \[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, ":")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        return project_name
+      }
+      return ""
+    }
     /^# RUNNING$/ { section = "RUNNING"; next }
     /^# [A-Z_]+$/ { section = "OTHER"; next }
     {
       if (section != "RUNNING") next
-      if ($0 !~ /^- \*\*[^*]+\*\*: ?/) next
-      line = $0
-      sub(/^- \*\*/, "", line)
-      marker_index = index(line, "**:")
-      if (marker_index <= 1) next
-      token = substr(line, 1, marker_index - 1)
+      token = parse_token($0)
+      if (token == "") next
       prefix = base "#"
       if (index(token, prefix) == 1 && length(token) > length(prefix)) {
         print substr(token, length(prefix) + 1)
@@ -151,16 +240,62 @@ resolve_single_running_project() {
 
   projects="$(
     awk '
+    function parse_token(raw,    line, marker_index, token, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
+      if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*\[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, "**:")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        if (substr(after_url, 1, 3) == "**:") {
+          return project_name
+        }
+        return ""
+      }
+      if (raw ~ /^- \*\*[^*]+\*\*: ?/) {
+        line = raw
+        sub(/^- \*\*/, "", line)
+        marker_index = index(line, "**:")
+        if (marker_index <= 1) return ""
+        token = substr(line, 1, marker_index - 1)
+        return token
+      }
+      if (raw ~ /^- \[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?: ?/) {
+        line = raw
+        sub(/^- \[/, "", line)
+        close_label = index(line, "](")
+        if (close_label <= 1) return ""
+        project_name = substr(line, 1, close_label - 1)
+        after_label = substr(line, close_label + 2)
+        close_url = index(after_label, ")")
+        if (close_url <= 0) return ""
+        after_url = substr(after_label, close_url + 1)
+        if (substr(after_url, 1, 1) == "#") {
+          colon_idx = index(after_url, ":")
+          if (colon_idx <= 2) return ""
+          ref = substr(after_url, 2, colon_idx - 2)
+          return project_name "#" ref
+        }
+        return project_name
+      }
+      return ""
+    }
     /^# RUNNING$/ { section = "RUNNING"; next }
     /^# [A-Z_]+$/ { section = "OTHER"; next }
     {
       if (section != "RUNNING") next
-      if ($0 !~ /^- \*\*[^*]+\*\*: ?/) next
-      line = $0
-      sub(/^- \*\*/, "", line)
-      marker_index = index(line, "**:")
-      if (marker_index <= 1) next
-      token = substr(line, 1, marker_index - 1)
+      token = parse_token($0)
+      if (token == "") next
       hash_index = index(token, "#")
       if (hash_index > 1) {
         print substr(token, 1, hash_index - 1)
@@ -210,13 +345,17 @@ run_before_submit() {
   local start_description="Cursor prompt submitted"
   local payload_description=""
   local payload_project=""
+  local payload_workspace_root=""
   local payload_ref=""
+  local payload_url=""
   local hook_payload="$1"
   local additional_context=""
 
   payload_description="$(extract_hook_description "$hook_payload")"
   payload_project="$(extract_hook_workspace_project "$hook_payload")"
+  payload_workspace_root="$(extract_hook_workspace_root "$hook_payload")"
   payload_ref="$(extract_hook_conversation_ref "$hook_payload")"
+  payload_url="$(extract_hook_url "$hook_payload")"
   if [[ -n "$payload_description" ]]; then
     start_description="$payload_description"
   fi
@@ -230,6 +369,13 @@ run_before_submit() {
   if [[ -n "$payload_project" ]]; then
     project="$payload_project"
   fi
+  if [[ -z "$payload_url" ]]; then
+    if [[ -n "$payload_workspace_root" ]]; then
+      payload_url="$(build_cursor_url_from_path "$payload_workspace_root")"
+    elif [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+      payload_url="$(build_cursor_url_from_path "$CURSOR_PROJECT_DIR")"
+    fi
+  fi
   project="$(normalize_and_trim "$project")"
   index="${payload_ref:-${JAI_INDEX:-0}}"
 
@@ -238,10 +384,15 @@ run_before_submit() {
     return 0
   fi
 
-  if index="$("$JAI_BIN" start -p "$project" -i "$index" -d "$start_description" --target "$hook_target" 2>/dev/null)"; then
+  if [[ -n "$payload_url" ]]; then
+    index="$("$JAI_BIN" start -p "$project" -i "$index" -d "$start_description" -url "$payload_url" --target "$hook_target" 2>/dev/null || true)"
+  else
+    index="$("$JAI_BIN" start -p "$project" -i "$index" -d "$start_description" --target "$hook_target" 2>/dev/null || true)"
+  fi
+  if [[ -n "$index" ]]; then
     additional_context="JAI task auto-started as ${project}#${index}. Use 'jai queue' for extra tasks and keep descriptions concrete."
-    printf '{ "continue": true, "env": { "JAI_PROJECT": "%s", "JAI_INDEX": "%s", "JAI_REF": "%s", "JAI_TARGET": "%s" }, "additional_context": "%s" }\n' \
-      "$project" "$index" "$index" "$hook_target" "$additional_context"
+    printf '{ "continue": true, "env": { "JAI_PROJECT": "%s", "JAI_INDEX": "%s", "JAI_REF": "%s", "JAI_TARGET": "%s", "JAI_URL": "%s" }, "additional_context": "%s" }\n' \
+      "$project" "$index" "$index" "$hook_target" "$payload_url" "$additional_context"
     return 0
   fi
 
@@ -254,16 +405,27 @@ run_stop() {
   local index="${JAI_INDEX:-${JAI_REF:-}}"
   local hook_payload="$1"
   local payload_project=""
+  local payload_workspace_root=""
   local payload_ref=""
+  local payload_url=""
 
   payload_project="$(extract_hook_workspace_project "$hook_payload")"
+  payload_workspace_root="$(extract_hook_workspace_root "$hook_payload")"
   payload_ref="$(extract_hook_conversation_ref "$hook_payload")"
+  payload_url="$(extract_hook_url "$hook_payload")"
 
   if [[ -z "$project" && -n "${CURSOR_PROJECT_DIR:-}" ]]; then
     project="$(basename "$CURSOR_PROJECT_DIR")"
   fi
   if [[ -n "$payload_project" ]]; then
     project="$payload_project"
+  fi
+  if [[ -z "$payload_url" ]]; then
+    if [[ -n "$payload_workspace_root" ]]; then
+      payload_url="$(build_cursor_url_from_path "$payload_workspace_root")"
+    elif [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+      payload_url="$(build_cursor_url_from_path "$CURSOR_PROJECT_DIR")"
+    fi
   fi
   if [[ -z "$project" ]]; then
     project="$(resolve_single_running_project "$hook_target")"
@@ -277,7 +439,11 @@ run_stop() {
   fi
 
   if [[ -n "$project" && -n "$index" ]]; then
-    "$JAI_BIN" notify -p "$project" -i "$index" --target "$hook_target" >/dev/null 2>&1 || true
+    if [[ -n "$payload_url" ]]; then
+      "$JAI_BIN" notify -p "$project" -i "$index" -url "$payload_url" --target "$hook_target" >/dev/null 2>&1 || true
+    else
+      "$JAI_BIN" notify -p "$project" -i "$index" --target "$hook_target" >/dev/null 2>&1 || true
+    fi
   fi
 
   printf '{}\n'

@@ -48,6 +48,7 @@ before_submit_output="$(
 assert_contains "$before_submit_output" "\"continue\": true" "before-submit should return continue=true"
 assert_contains "$before_submit_output" "\"JAI_PROJECT\": \"CURSORHOOKS\"" "before-submit should expose JAI_PROJECT"
 assert_contains "$before_submit_output" "\"JAI_INDEX\": \"5ab321\"" "before-submit should expose conversation-based ref"
+assert_contains "$before_submit_output" "\"JAI_URL\": \"cursor://file//tmp/CURSORHOOKS/\"" "before-submit should derive JAI_URL from project path"
 
 running_status="$("$JAI" get -p "CURSORHOOKS" -i "5ab321" --target "$TARGET")"
 assert_contains "$running_status" "CURSORHOOKS#5ab321: RUNNING - Prepare release notes" "before-submit should upsert RUNNING entry"
@@ -56,6 +57,17 @@ assert_contains "$running_status" "CURSORHOOKS#5ab321: RUNNING - Prepare release
 JAI_PROJECT="CURSORHOOKS" JAI_INDEX="5ab321" JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" stop <<< '{}' >/dev/null
 review_status="$("$JAI" get -p "CURSORHOOKS" -i "5ab321" --target "$TARGET")"
 assert_contains "$review_status" "CURSORHOOKS#5ab321: REVIEW_REQUIRED - Prepare release notes" "stop should mark task as review required without overriding description"
+
+# 2b) before-submit with URL should render markdown deep link
+before_submit_with_url="$(
+  CURSOR_PROJECT_DIR="/tmp/CURSORHOOKSLINK" \
+    JAI_BIN="$JAI" \
+    JAI_TARGET="$TARGET" \
+    "$JAI_HOOKS" before-submit <<< '{"conversation_id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc","description":"Open deep link","url":"cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc"}'
+)"
+assert_contains "$before_submit_with_url" "\"JAI_URL\": \"cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc\"" "before-submit should propagate url payload"
+target_contents="$(<"$TARGET")"
+assert_contains "$target_contents" "- **[CURSORHOOKSLINK](cursor://chat/open?conversation=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbb123abc)#123abc**: Open deep link" "status file should render linked project format"
 
 # 3) Unimplemented hooks should no-op and return empty JSON.
 after_submit_output="$(JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" after-submit <<< '{"conversation_id":"noop"}')"

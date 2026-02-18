@@ -10,9 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 print_help() {
   cat <<'EOF'
 Usage:
-  jai queue  -p <project> -d <description> [-i <id>] [--target <file>]
-  jai start  -p <project> -d <description> [-i <id>] [--target <file>]
-  jai notify -p <project> [-d <description>] [-i <id>] [--target <file>]
+  jai queue  -p <project> -d <description> [-i <id>] [-url <url>] [--target <file>]
+  jai start  -p <project> -d <description> [-i <id>] [-url <url>] [--target <file>]
+  jai notify -p <project> [-d <description>] [-i <id>] [-url <url>] [--target <file>]
   jai get    -p <project> [-i <id>] [--target <file>]
   jai rm     -p <project> [-i <id>] [--target <file>]
   jai watch  [--target <file>]
@@ -50,6 +50,12 @@ normalize_text() {
 
 normalize_and_trim() {
   normalize_text "$1" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//'
+}
+
+normalize_url() {
+  printf '%s' "$1" \
+    | tr -d '\r\n\t ' \
+    | tr -cd '[:alnum:][:punct:]'
 }
 
 expand_install_dir() {
@@ -134,6 +140,7 @@ project=""
 status=""
 description=""
 index=""
+url=""
 target="$DEFAULT_TARGET"
 
 if [[ "$COMMAND" == "--help" || "$COMMAND" == "-h" || -z "$COMMAND" ]]; then
@@ -213,6 +220,11 @@ while [[ $# -gt 0 ]]; do
     index="$2"
     shift 2
     ;;
+  -url | --url)
+    [[ $# -ge 2 ]] || error "Missing value for $1"
+    url="$2"
+    shift 2
+    ;;
   --target)
     [[ $# -ge 2 ]] || error "Missing value for $1"
     target="$2"
@@ -235,6 +247,10 @@ done
 project="$(normalize_and_trim "$project")"
 [[ -n "$project" ]] || error "Project is required (-p)"
 [[ -n "$index" ]] && validate_index "$index"
+if [[ -n "$url" ]]; then
+  url="$(normalize_url "$url")"
+  [[ -n "$url" ]] || error "URL cannot be empty after normalization."
+fi
 
 if [[ -n "$status" ]]; then
   error "The -s/--status option is no longer supported. Use queue/start/notify commands."
@@ -282,22 +298,79 @@ if [[ -f "$target" ]]; then
     sub(/ +$/, "", value)
     return value
   }
+  function parse_old_entry(raw,    line, marker_index, token, desc) {
+    if (raw !~ /^- \*\*[^*]+\*\*: ?/) return 0
+    line = raw
+    sub(/^- \*\*/, "", line)
+    marker_index = index(line, "**:")
+    if (marker_index <= 1) return 0
+    parsed_token = normalize(substr(line, 1, marker_index - 1))
+    parsed_desc = normalize(substr(line, marker_index + 3))
+    parsed_url = ""
+    return (parsed_token != "" && parsed_desc != "")
+  }
+  function parse_linked_entry(raw,    line, close_label, after_label, close_url, after_url, colon_idx, project_name, ref) {
+    line = raw
+    if (raw ~ /^- \*\*\[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?\*\*: ?/) {
+      sub(/^- \*\*\[/, "", line)
+      close_label = index(line, "](")
+      if (close_label <= 1) return 0
+      project_name = normalize(substr(line, 1, close_label - 1))
+      after_label = substr(line, close_label + 2)
+      close_url = index(after_label, ")")
+      if (close_url <= 0) return 0
+      parsed_url = substr(after_label, 1, close_url - 1)
+      after_url = substr(after_label, close_url + 1)
+      if (substr(after_url, 1, 1) == "#") {
+        colon_idx = index(after_url, "**:")
+        if (colon_idx <= 2) return 0
+        ref = substr(after_url, 2, colon_idx - 2)
+        parsed_token = normalize(project_name "#" ref)
+        parsed_desc = normalize(substr(after_url, colon_idx + 3))
+      } else if (substr(after_url, 1, 3) == "**:") {
+        parsed_token = normalize(project_name)
+        parsed_desc = normalize(substr(after_url, 4))
+      } else {
+        return 0
+      }
+      return (parsed_token != "" && parsed_desc != "")
+    }
+
+    if (raw !~ /^- \[[^]]+\]\([^)]*\)(#[^:[:space:]]+)?: ?/) return 0
+    sub(/^- \[/, "", line)
+    close_label = index(line, "](")
+    if (close_label <= 1) return 0
+    project_name = normalize(substr(line, 1, close_label - 1))
+    after_label = substr(line, close_label + 2)
+    close_url = index(after_label, ")")
+    if (close_url <= 0) return 0
+    parsed_url = substr(after_label, 1, close_url - 1)
+    after_url = substr(after_label, close_url + 1)
+    if (substr(after_url, 1, 1) == "#") {
+      colon_idx = index(after_url, ":")
+      if (colon_idx <= 2) return 0
+      ref = substr(after_url, 2, colon_idx - 2)
+      parsed_token = normalize(project_name "#" ref)
+      parsed_desc = normalize(substr(after_url, colon_idx + 1))
+    } else if (substr(after_url, 1, 1) == ":") {
+      parsed_token = normalize(project_name)
+      parsed_desc = normalize(substr(after_url, 2))
+    } else {
+      return 0
+    }
+    return (parsed_token != "" && parsed_desc != "")
+  }
   /^# [A-Z_]+$/ {
     section = substr($0, 3)
     next
   }
   {
-    if (section ~ /^(QUEUED|RUNNING|REVIEW_REQUIRED)$/ && $0 ~ /^- \*\*[^*]+\*\*: ?/) {
-      line = $0
-      sub(/^- \*\*/, "", line)
-      marker_index = index(line, "**:")
-      if (marker_index > 1) {
-        project = normalize(substr(line, 1, marker_index - 1))
-        description = normalize(substr(line, marker_index + 3))
-        if (project != "" && description != "") {
-          print project "\t" section "\t" description
-        }
-      }
+    if (section !~ /^(QUEUED|RUNNING|REVIEW_REQUIRED)$/) next
+    parsed_token = ""
+    parsed_desc = ""
+    parsed_url = ""
+    if (parse_linked_entry($0) || parse_old_entry($0)) {
+      print parsed_token "\t" section "\t" parsed_desc "\t" parsed_url
     }
   }' "$target" >>"$records_file"
 fi
@@ -332,8 +405,16 @@ if [[ "$COMMAND" == "notify" && -z "$description" ]]; then
   [[ -n "$description" ]] || error "Description is required (-d) when there is no existing entry for '$project_token'."
 fi
 
+if [[ "$COMMAND" == "notify" && -z "$url" ]]; then
+  url="$(awk -F'\t' -v token="$project_token" '
+  $1 == token { latest = $4; found = 1 }
+  END {
+    if (found) print latest
+  }' "$records_file")"
+fi
+
 if [[ "$COMMAND" == "notify" || "$COMMAND" == "queue" || "$COMMAND" == "start" ]]; then
-  printf '%s\t%s\t%s\n' "$project_token" "$status" "$description" >>"$records_file"
+  printf '%s\t%s\t%s\t%s\n' "$project_token" "$status" "$description" "$url" >>"$records_file"
 fi
 
 awk -F'\t' '
@@ -402,10 +483,24 @@ fi
 for section in REVIEW_REQUIRED RUNNING QUEUED; do
   printf '# %s\n' "$section" >>"$tmp_file"
 
-  awk -F'\t' -v sec="$section" '$2 == sec { print $1 "\t" $3 }' "$deduped_file" \
+  awk -F'\t' -v sec="$section" '$2 == sec { print $1 "\t" $3 "\t" $4 }' "$deduped_file" \
     | LC_ALL=C sort -f \
-    | while IFS=$'\t' read -r entry_project entry_description; do
-      printf -- '- **%s**: %s\n' "$entry_project" "$entry_description" >>"$tmp_file"
+    | while IFS=$'\t' read -r entry_project entry_description entry_url; do
+      if [[ -n "$entry_url" ]]; then
+        entry_name="$entry_project"
+        entry_ref=""
+        if [[ "$entry_project" == *"#"* ]]; then
+          entry_name="${entry_project%%#*}"
+          entry_ref="${entry_project#*#}"
+        fi
+        if [[ -n "$entry_ref" && "$entry_ref" != "$entry_project" ]]; then
+          printf -- '- **[%s](%s)#%s**: %s\n' "$entry_name" "$entry_url" "$entry_ref" "$entry_description" >>"$tmp_file"
+        else
+          printf -- '- **[%s](%s)**: %s\n' "$entry_name" "$entry_url" "$entry_description" >>"$tmp_file"
+        fi
+      else
+        printf -- '- **%s**: %s\n' "$entry_project" "$entry_description" >>"$tmp_file"
+      fi
     done
 
   if [[ "$section" != "QUEUED" ]]; then
