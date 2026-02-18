@@ -26,6 +26,7 @@ else
 fi
 
 BASE_URL="${JAKUB_SH_BASE_URL:-https://jakub.sh}"
+BASE_URL="${BASE_URL%/}"
 
 print_step() {
   echo -e "${DIM}▸ ${1}${NC}"
@@ -50,51 +51,76 @@ echo ""
 print_step "Ensuring bin directory exists at ~/.local/bin..."
 mkdir -p ~/.local/bin
 
-SEKEY_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/sekey/sekey.sh"
-JAI_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/jai/jai.sh"
-JAI_HOOKS_URL="https://raw.githubusercontent.com/dzikowski/jakub.sh/refs/heads/main/jai/jai-cursorhooks.sh"
-TEMP_FILE=$(mktemp)
+SEKEY_URL="${BASE_URL}/sekey/sekey.sh"
+JAI_URL="${BASE_URL}/jai/jai.sh"
+JAI_HOOKS_URL="${BASE_URL}/jai/jai-cursorhooks.sh"
 
-# installing sekey
-print_step "Downloading sekey..."
-
-if curl -fSsL "$SEKEY_URL" -o "$TEMP_FILE"; then
-  chmod +x "$TEMP_FILE"
-  mv "$TEMP_FILE" "$HOME/.local/bin/sekey"
-  print_success "Installed: sekey"
-else
-  rm -f "$TEMP_FILE"
-  print_error "Download failed: sekey"
+if [ "$#" -gt 1 ]; then
+  print_error "Too many arguments."
+  echo "Usage: bash -s [sekey,jai]"
   exit 1
 fi
 
-# installing jai
-print_step "Downloading jai..."
+INSTALL_SEKEY=false
+INSTALL_JAI=false
 
-if curl -fSsL "$JAI_URL" -o "$TEMP_FILE"; then
-  chmod +x "$TEMP_FILE"
-  mv "$TEMP_FILE" "$HOME/.local/bin/jai"
-  print_success "Installed: jai"
+if [ "$#" -eq 0 ] || [ -z "${1}" ]; then
+  INSTALL_SEKEY=true
+  INSTALL_JAI=true
 else
-  rm -f "$TEMP_FILE"
-  print_error "Download failed: jai"
+  IFS=',' read -r -a REQUESTED_TOOLS <<< "${1}"
+  for raw_tool in "${REQUESTED_TOOLS[@]}"; do
+    tool="${raw_tool//[[:space:]]/}"
+    case "$tool" in
+      sekey) INSTALL_SEKEY=true ;;
+      jai) INSTALL_JAI=true ;;
+      "")
+        ;;
+      *)
+        print_error "Unknown tool: ${tool}"
+        echo "Available tools: sekey,jai"
+        exit 1
+        ;;
+    esac
+  done
+fi
+
+if [ "$INSTALL_SEKEY" = false ] && [ "$INSTALL_JAI" = false ]; then
+  print_error "No tools selected."
+  echo "Usage: bash -s [sekey,jai]"
   exit 1
 fi
 
-# installing jai-cursorhooks
-print_step "Downloading jai-cursorhooks..."
+install_tool() {
+  local name="$1"
+  local url="$2"
+  local target="$3"
+  local temp_file
 
-if curl -fSsL "$JAI_HOOKS_URL" -o "$TEMP_FILE"; then
-  chmod +x "$TEMP_FILE"
-  mv "$TEMP_FILE" "$HOME/.local/bin/jai-cursorhooks"
-  print_success "Installed: jai-cursorhooks"
-else
-  rm -f "$TEMP_FILE"
-  print_error "Download failed: jai-cursorhooks"
-  exit 1
+  print_step "Downloading ${name}..."
+  temp_file=$(mktemp)
+
+  if curl -fsSL "$url" -o "$temp_file"; then
+    chmod +x "$temp_file"
+    mv "$temp_file" "$target"
+    print_success "Installed: ${name}"
+  else
+    rm -f "$temp_file"
+    print_error "Download failed: ${name}"
+    exit 1
+  fi
+}
+
+if [ "$INSTALL_SEKEY" = true ]; then
+  install_tool "sekey" "$SEKEY_URL" "$HOME/.local/bin/sekey"
 fi
 
-if ! command -v jq >/dev/null 2>&1; then
+if [ "$INSTALL_JAI" = true ]; then
+  install_tool "jai" "$JAI_URL" "$HOME/.local/bin/jai"
+  install_tool "jai-cursorhooks" "$JAI_HOOKS_URL" "$HOME/.local/bin/jai-cursorhooks"
+fi
+
+if [ "$INSTALL_JAI" = true ] && ! command -v jq >/dev/null 2>&1; then
   print_warning "jq not found. jai-cursorhooks JSON parsing needs jq."
   print_warning "Install jq, then run: jai install-cursorhooks"
 fi

@@ -1,0 +1,50 @@
+name: Test install script
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start local HTTP server for install script
+        run: python3 -m http.server 8000 --bind 127.0.0.1 --directory "$GITHUB_WORKSPACE" >/tmp/http-server.log 2>&1 &
+
+      - name: Wait for local HTTP server
+        run: |
+          set -euo pipefail
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8000/install >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Local HTTP server did not become ready."
+          cat /tmp/http-server.log || true
+          exit 1
+
+      - name: Install tools from local server
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 1 --retry-connrefused -fsSL http://127.0.0.1:8000/install \
+            | JAKUB_SH_BASE_URL=http://127.0.0.1:8000 bash
+
+      - name: Verify installed tool versions
+        run: |
+          "$HOME/.local/bin/sekey" version
+          "$HOME/.local/bin/jai" version
+          export PATH="$HOME/.local/bin:$PATH"
+          sekey version
+          jai version

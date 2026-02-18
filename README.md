@@ -2,8 +2,14 @@
 
 A collection of utility tools for modern development workflows.
 
+```bash
+curl -fsSL https://jakub.sh/install | bash
 ```
-curl jakub.sh/install | bash
+
+Or if you want just some of the tools:
+
+```bash
+curl -fsSL https://jakub.sh/install | bash -s tool1,tool2
 ```
 
 Installs all tools into `~/.local/bin`.
