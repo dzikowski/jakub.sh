@@ -16,6 +16,18 @@ Installs all tools into `~/.local/bin`.
 
 ## jai
 
+<video 
+  autoplay 
+  loop 
+  muted 
+  playsinline 
+  width="100%" 
+  style="display:block; border-radius:3px;"
+>
+  <source src="jai-demo.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
 Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. Once you install Cursor Hooks, `jai` manages a single Markdown document with all current progress of agent sessions.
 
 ```bash
@@ -25,7 +37,6 @@ jai install-cursorhooks [directory]
 Note Cursor Hooks will replace your existing ones. And if you don't provide the `directory` parameter, it will use the global one.
 
 To see the status simply open the `~/.local/jai-status.md` file in any tool that supports live-reloading from disk (like Typora, Obsidian, Cursor). Or just do `jai watch` to have it the terminal.
-
 
 &gt;&gt; [jai / README.md](jai/README.md) &lt;&lt;
 
