@@ -16,8 +16,6 @@ Installs all tools into `~/.local/bin`.
 
 ## jai
 
-![jai demo](jai-demo.gif)
-
 Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. Once you install Cursor Hooks, `jai` manages a single Markdown document with all current progress of agent sessions.
 
 ```bash
@@ -28,7 +26,9 @@ Note Cursor Hooks will replace your existing ones. And if you don't provide the 
 
 To see the status simply open the `~/.local/jai-status.md` file in any tool that supports live-reloading from disk (like Typora, Obsidian, Cursor). Or just do `jai watch` to have it the terminal.
 
-&gt;&gt; [jai / README.md](jai/README.md) &lt;&lt;
+![jai demo](jai-demo.gif)
+
+⇨ [jai / README.md](jai/README.md)
 
 ## sekey
 
@@ -46,5 +46,5 @@ Sandbox the secret. The command is executed with env injected from secrets, and 
 ```bash
 sekey --env MY_SECRET command.sh
 ```
-&gt;&gt; [sekey / README.md](sekey/README.md) &lt;&lt;
+⇨ [sekey / README.md](sekey/README.md)
 
