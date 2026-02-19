@@ -28,7 +28,7 @@ To see the status simply open the `~/.local/jai-status.md` file in any tool that
 
 ![jai demo](jai-demo.gif)
 
-⇨ [jai / README.md](jai/README.md)
+⇨ jai / [README.md](jai/README.md)
 
 ## sekey
 
@@ -46,5 +46,5 @@ Sandbox the secret. The command is executed with env injected from secrets, and 
 ```bash
 sekey --env MY_SECRET command.sh
 ```
-⇨ [sekey / README.md](sekey/README.md)
+⇨ sekey / [README.md](sekey/README.md)
 
