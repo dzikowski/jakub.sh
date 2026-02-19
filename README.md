@@ -16,17 +16,11 @@ Installs all tools into `~/.local/bin`.
 
 ## jai
 
-<video 
-  autoplay 
-  loop 
-  muted 
-  playsinline 
-  width="100%" 
-  style="display:block; border-radius:3px;"
->
-  <source src="jai-demo.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+
+
+https://github.com/user-attachments/assets/c0ba3501-396d-4434-a4b3-c0b9bf3cd100
+
+
 
 Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. Once you install Cursor Hooks, `jai` manages a single Markdown document with all current progress of agent sessions.
 
