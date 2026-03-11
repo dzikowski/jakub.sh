@@ -26,8 +26,9 @@ Note Cursor Hooks will replace your existing ones. And if you don't provide the 
 
 To see the status simply open the `~/.local/jai-status.md` file in any tool that supports live-reloading from disk (like Typora, Obsidian, Cursor). Or just do `jai watch` to have it the terminal.
 
+![jai demo](jai-demo.gif)
 
-&gt;&gt; [jai / README.md](jai/README.md) &lt;&lt;
+⇨ jai / [README.md](jai/README.md)
 
 ## sekey
 
@@ -45,5 +46,5 @@ Sandbox the secret. The command is executed with env injected from secrets, and 
 ```bash
 sekey --env MY_SECRET command.sh
 ```
-&gt;&gt; [sekey / README.md](sekey/README.md) &lt;&lt;
+⇨ sekey / [README.md](sekey/README.md)
 
