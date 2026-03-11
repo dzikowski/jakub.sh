@@ -50,6 +50,12 @@ jai rm -p <project> [-i <id>] [--target <file>]
 # Watch status file (refresh each second)
 jai watch [--target <file>]
 
+# Print Cursor hooks JSON
+jai cursorhooks
+
+# Print zsh hooks for terminal command tracking
+jai zshhooks
+
 # Install Cursor hooks globally (default: ~)
 jai install-cursorhooks [directory]
 ```
@@ -126,6 +132,36 @@ Use a custom file:
 jai watch --target ./status.md
 ```
 
+## Zsh hooks (generic terminal)
+
+Generate hooks:
+
+```bash
+jai zshhooks
+```
+
+Install once (recommended):
+
+```bash
+jai zshhooks > ~/.jai-zshhooks.zsh
+echo 'source ~/.jai-zshhooks.zsh' >> ~/.zshrc
+exec zsh
+```
+
+What these hooks do:
+
+- Register `preexec` and `precmd` hooks in zsh.
+- If a command runs longer than `10s`, Jai creates a `RUNNING` entry.
+- When that command finishes, Jai moves the same entry to `REVIEW_REQUIRED`.
+- Link field uses a generic terminal URL with host + tty + cwd metadata.
+
+Optional tuning:
+
+```bash
+export JAI_ZSH_THRESHOLD_SECONDS=10
+export JAI_TARGET="$HOME/.local/jai-status.md"
+```
+
 ## Verification
 
 Run end-to-end checks with:
@@ -136,6 +172,12 @@ jai/test.jai-cursorhooks.sh
 ```
 
 ## Cursor hooks
+
+Print hooks JSON (for manual setup):
+
+```bash
+jai cursorhooks
+```
 
 Install hooks (global by default):
 
@@ -158,8 +200,18 @@ It expects `jai-cursorhooks` to be globally available in `PATH` (for example in 
 Configured hook actions:
 
 - `beforeSubmitPrompt` -> `jai-cursorhooks before-submit` (starts/updates RUNNING with conversation-based id)
+- `preToolUse` -> `jai-cursorhooks pre-tool` (tracks long-running terminal commands)
+- `postToolUse` -> `jai-cursorhooks post-tool` (marks tracked terminal commands as REVIEW_REQUIRED)
 - `stop` -> `jai-cursorhooks stop` (moves task to REVIEW_REQUIRED without changing description)
 - `afterAgentResponse` -> `jai-cursorhooks after-submit` (currently no-op)
+
+Long-running terminal command tracking:
+
+- Commands detected via tool hooks are tracked when they run longer than `10s` (default threshold).
+- Once threshold is exceeded, Jai creates `RUNNING` entry like `Terminal command: <command>`.
+- When the tool completes, Jai moves the same entry to `REVIEW_REQUIRED`.
+- If hook payload includes a terminal link (for example `terminal_url`), Jai keeps it on the entry.
+- Override threshold via `JAI_LONG_COMMAND_THRESHOLD_SECONDS=<seconds>`.
 
 Debug mode:
 

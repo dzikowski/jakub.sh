@@ -5,6 +5,8 @@ set -euo pipefail
 DEFAULT_TARGET="$HOME/.local/jai-status.md"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_ACTION="${1:-}"
+LONG_COMMAND_THRESHOLD_SECONDS="${JAI_LONG_COMMAND_THRESHOLD_SECONDS:-10}"
+LONG_COMMAND_STATE_DIR="${JAI_LONG_COMMAND_STATE_DIR:-/tmp/jai/long-commands}"
 
 resolve_jai_bin() {
   if [[ -n "${JAI_BIN:-}" ]]; then
@@ -51,6 +53,10 @@ normalize_url() {
   printf '%s' "$1" \
     | tr -d '\r\n\t ' \
     | tr -cd '[:alnum:][:punct:]'
+}
+
+sanitize_identifier() {
+  printf '%s' "$1" | tr -cd '[:alnum:]_-'
 }
 
 encode_path_for_cursor_url() {
@@ -150,6 +156,229 @@ extract_hook_url() {
   extracted="$(jq_extract_string "$hook_payload" '[.url?, .cursor_url?, .cursorUrl?, .deep_link?, .deepLink?, .link?, .session?.url?, .request?.url?, .request?.session?.url?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
 
   normalize_url "$extracted"
+}
+
+extract_hook_tool_name() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.tool_name?, .toolName?, .tool?.name?, .name?, .tool_call?.name?, .toolCall?.name?, .event?.tool_name?, .event?.toolName?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+  normalize_and_trim "$extracted"
+}
+
+extract_hook_tool_call_id() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.tool_call_id?, .toolCallId?, .tool_call?.id?, .toolCall?.id?, .id?, .event?.tool_call_id?, .event?.toolCallId?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+  normalize_and_trim "$extracted"
+}
+
+extract_hook_tool_command() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.command?, .input?.command?, .arguments?.command?, .tool_input?.command?, .toolInput?.command?, .tool?.input?.command?, .tool_call?.arguments?.command?, .toolCall?.arguments?.command?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+  normalize_and_trim "$extracted"
+}
+
+extract_hook_terminal_url() {
+  local hook_payload="$1"
+  local extracted=""
+
+  extracted="$(jq_extract_string "$hook_payload" '[.terminal_url?, .terminalUrl?, .tool_result?.terminal_url?, .toolResult?.terminalUrl?, .result?.terminal_url?, .result?.terminalUrl?, .output?.terminal_url?, .output?.terminalUrl?, .url?, .cursor_url?, .cursorUrl?] | map(select(type == "string")) | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | .[0] // ""')"
+  normalize_url "$extracted"
+}
+
+is_terminal_tool_event() {
+  local tool_name="$1"
+  local lowered=""
+
+  lowered="$(printf '%s' "$tool_name" | tr '[:upper:]' '[:lower:]')"
+  [[ "$lowered" == "terminal" || "$lowered" == "shell" || "$lowered" == "bash" || "$lowered" == "zsh" || "$lowered" == "command" ]]
+}
+
+build_long_command_ref() {
+  local call_id="$1"
+  local project="$2"
+  local conversation_ref="$3"
+  local normalized=""
+
+  normalized="$(sanitize_identifier "$call_id")"
+  if [[ -n "$normalized" && ${#normalized} -gt 10 ]]; then
+    normalized="${normalized: -10}"
+  fi
+  if [[ -z "$normalized" && -n "$conversation_ref" ]]; then
+    normalized="$(sanitize_identifier "$conversation_ref")"
+  fi
+  if [[ -z "$normalized" ]]; then
+    normalized="$(date +%s)"
+  fi
+  printf 'term-%s' "$normalized"
+}
+
+build_long_command_state_key() {
+  local project="$1"
+  local ref="$2"
+  printf '%s__%s' "$(sanitize_identifier "$project")" "$(sanitize_identifier "$ref")"
+}
+
+run_pre_tool() {
+  local hook_target="${JAI_TARGET:-$DEFAULT_TARGET}"
+  local hook_payload="$1"
+  local project="${JAI_PROJECT:-}"
+  local conversation_ref="${JAI_INDEX:-${JAI_REF:-}}"
+  local payload_project=""
+  local payload_workspace_root=""
+  local tool_name=""
+  local command_text=""
+  local tool_call_id=""
+  local terminal_url=""
+  local ref=""
+  local state_key=""
+  local state_path=""
+  local threshold="${LONG_COMMAND_THRESHOLD_SECONDS}"
+
+  payload_project="$(extract_hook_workspace_project "$hook_payload")"
+  payload_workspace_root="$(extract_hook_workspace_root "$hook_payload")"
+  tool_name="$(extract_hook_tool_name "$hook_payload")"
+  command_text="$(extract_hook_tool_command "$hook_payload")"
+  tool_call_id="$(extract_hook_tool_call_id "$hook_payload")"
+  terminal_url="$(extract_hook_terminal_url "$hook_payload")"
+
+  if [[ -n "$payload_project" ]]; then
+    project="$payload_project"
+  elif [[ -z "$project" && -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+    project="$(basename "$CURSOR_PROJECT_DIR")"
+  fi
+  project="$(normalize_and_trim "$project")"
+
+  if [[ -z "$project" || -z "$command_text" ]] || ! is_terminal_tool_event "$tool_name"; then
+    printf '{}\n'
+    return 0
+  fi
+
+  if [[ -z "$terminal_url" ]]; then
+    if [[ -n "$payload_workspace_root" ]]; then
+      terminal_url="$(build_cursor_url_from_path "$payload_workspace_root")"
+    elif [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+      terminal_url="$(build_cursor_url_from_path "$CURSOR_PROJECT_DIR")"
+    fi
+  fi
+
+  if [[ ! "$threshold" =~ ^[0-9]+$ ]]; then
+    threshold="10"
+  fi
+
+  ref="$(build_long_command_ref "$tool_call_id" "$project" "$conversation_ref")"
+  state_key="$(build_long_command_state_key "$project" "$ref")"
+  mkdir -p "$LONG_COMMAND_STATE_DIR"
+  state_path="${LONG_COMMAND_STATE_DIR}/${state_key}.state"
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$project" \
+    "$ref" \
+    "Terminal command: $command_text" \
+    "$hook_target" \
+    "$terminal_url" \
+    "0" >"$state_path"
+
+  (
+    sleep "$threshold"
+    if [[ ! -f "$state_path" ]]; then
+      exit 0
+    fi
+    local st_project=""
+    local st_ref=""
+    local st_description=""
+    local st_target=""
+    local st_url=""
+    local st_reported=""
+    IFS=$'\t' read -r st_project st_ref st_description st_target st_url st_reported <"$state_path" || exit 0
+    if [[ "$st_reported" == "1" ]]; then
+      exit 0
+    fi
+    if [[ -n "$st_url" ]]; then
+      "$JAI_BIN" start -p "$st_project" -i "$st_ref" -d "$st_description" -url "$st_url" --target "$st_target" >/dev/null 2>&1 || true
+    else
+      "$JAI_BIN" start -p "$st_project" -i "$st_ref" -d "$st_description" --target "$st_target" >/dev/null 2>&1 || true
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$st_project" "$st_ref" "$st_description" "$st_target" "$st_url" "1" >"$state_path"
+  ) >/dev/null 2>&1 &
+
+  printf '{}\n'
+}
+
+run_post_tool() {
+  local hook_target="${JAI_TARGET:-$DEFAULT_TARGET}"
+  local hook_payload="$1"
+  local project="${JAI_PROJECT:-}"
+  local conversation_ref="${JAI_INDEX:-${JAI_REF:-}}"
+  local payload_project=""
+  local payload_workspace_root=""
+  local tool_name=""
+  local tool_call_id=""
+  local terminal_url=""
+  local ref=""
+  local state_key=""
+  local state_path=""
+  local st_project=""
+  local st_ref=""
+  local st_description=""
+  local st_target=""
+  local st_url=""
+  local st_reported=""
+
+  payload_project="$(extract_hook_workspace_project "$hook_payload")"
+  payload_workspace_root="$(extract_hook_workspace_root "$hook_payload")"
+  tool_name="$(extract_hook_tool_name "$hook_payload")"
+  tool_call_id="$(extract_hook_tool_call_id "$hook_payload")"
+  terminal_url="$(extract_hook_terminal_url "$hook_payload")"
+
+  if [[ -n "$payload_project" ]]; then
+    project="$payload_project"
+  elif [[ -z "$project" && -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+    project="$(basename "$CURSOR_PROJECT_DIR")"
+  fi
+  project="$(normalize_and_trim "$project")"
+
+  if [[ -z "$project" ]] || ! is_terminal_tool_event "$tool_name"; then
+    printf '{}\n'
+    return 0
+  fi
+
+  if [[ -z "$terminal_url" ]]; then
+    if [[ -n "$payload_workspace_root" ]]; then
+      terminal_url="$(build_cursor_url_from_path "$payload_workspace_root")"
+    elif [[ -n "${CURSOR_PROJECT_DIR:-}" ]]; then
+      terminal_url="$(build_cursor_url_from_path "$CURSOR_PROJECT_DIR")"
+    fi
+  fi
+
+  ref="$(build_long_command_ref "$tool_call_id" "$project" "$conversation_ref")"
+  state_key="$(build_long_command_state_key "$project" "$ref")"
+  state_path="${LONG_COMMAND_STATE_DIR}/${state_key}.state"
+  if [[ ! -f "$state_path" ]]; then
+    printf '{}\n'
+    return 0
+  fi
+
+  IFS=$'\t' read -r st_project st_ref st_description st_target st_url st_reported <"$state_path" || {
+    rm -f "$state_path"
+    printf '{}\n'
+    return 0
+  }
+
+  if [[ "$st_reported" == "1" ]]; then
+    if [[ -n "$terminal_url" ]]; then
+      "$JAI_BIN" notify -p "$project" -i "$ref" -url "$terminal_url" --target "$hook_target" >/dev/null 2>&1 || true
+    else
+      "$JAI_BIN" notify -p "$project" -i "$ref" --target "$hook_target" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  rm -f "$state_path"
+  printf '{}\n'
 }
 
 resolve_single_running_ref() {
@@ -469,7 +698,13 @@ before-submit)
 stop)
   run_stop "$HOOK_PAYLOAD"
   ;;
-before-start | session-start | after-submit | notify | pre-tool | post-tool | user-prompt)
+pre-tool)
+  run_pre_tool "$HOOK_PAYLOAD"
+  ;;
+post-tool)
+  run_post_tool "$HOOK_PAYLOAD"
+  ;;
+before-start | session-start | after-submit | notify | user-prompt)
   run_noop
   ;;
 *)

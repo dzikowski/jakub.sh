@@ -76,6 +76,28 @@ assert_equals "$after_submit_output" "{}" "after-submit should be no-op"
 unknown_output="$(JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" unknown-action <<< '{"conversation_id":"noop"}')"
 assert_equals "$unknown_output" "{}" "unknown action should be no-op"
 
+# 3b) long-running terminal command should move RUNNING -> REVIEW_REQUIRED.
+rm -f "$TARGET"
+rm -f /tmp/jai/long-commands/LONGCMD__term-tcall123.state 2>/dev/null || true
+JAI_BIN="$JAI" \
+  JAI_TARGET="$TARGET" \
+  JAI_LONG_COMMAND_THRESHOLD_SECONDS=1 \
+  CURSOR_PROJECT_DIR="/tmp/LONGCMD" \
+  "$JAI_HOOKS" pre-tool <<< '{"tool_name":"shell","tool_call_id":"tcall123","command":"sleep 20","workspace_roots":["/tmp/LONGCMD"],"terminal_url":"cursor://terminal/123"}' >/dev/null
+sleep 2
+long_running_status="$("$JAI" get -p "LONGCMD" -i "term-tcall123" --target "$TARGET")"
+assert_contains "$long_running_status" "LONGCMD#term-tcall123: RUNNING - Terminal command: sleep 20" "pre-tool should start task when command runs past threshold"
+
+JAI_BIN="$JAI" \
+  JAI_TARGET="$TARGET" \
+  JAI_LONG_COMMAND_THRESHOLD_SECONDS=1 \
+  CURSOR_PROJECT_DIR="/tmp/LONGCMD" \
+  "$JAI_HOOKS" post-tool <<< '{"tool_name":"shell","tool_call_id":"tcall123","workspace_roots":["/tmp/LONGCMD"],"terminal_url":"cursor://terminal/123"}' >/dev/null
+long_review_status="$("$JAI" get -p "LONGCMD" -i "term-tcall123" --target "$TARGET")"
+assert_contains "$long_review_status" "LONGCMD#term-tcall123: REVIEW_REQUIRED - Terminal command: sleep 20" "post-tool should mark long-running command as review required"
+target_contents="$(<"$TARGET")"
+assert_contains "$target_contents" "- **[LONGCMD](cursor://terminal/123)#term-tcall123**: Terminal command: sleep 20" "long-running command should keep terminal link when available"
+
 # 4) In debug mode, payload should be appended to date+conversation log.
 JAI_DEBUG=true JAI_BIN="$JAI" JAI_TARGET="$TARGET" "$JAI_HOOKS" after-submit <<< "{\"conversation_id\":\"${DEBUG_CONVERSATION_ID}\",\"message\":\"debug payload\"}" >/dev/null
 [[ -f "$DEBUG_LOG_FILE" ]] || { printf 'FAIL: Expected debug log file %s\n' "$DEBUG_LOG_FILE" >&2; exit 1; }
