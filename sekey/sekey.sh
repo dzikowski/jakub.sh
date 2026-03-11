@@ -152,6 +152,28 @@ sanitize_output() {
   printf '%s' "$sanitized"
 }
 
+sanitize_stream() {
+  local secrets=("$@")
+  local sed_args=()
+
+  for value in "${secrets[@]}"; do
+    # Avoid masking tiny secrets
+    if [[ ${#value} -lt 4 ]]; then
+      continue
+    fi
+
+    local escaped
+    escaped=$(escape_for_sed "$value")
+    sed_args+=("-e" "s/$escaped/***/g")
+  done
+
+  if [[ ${#sed_args[@]} -eq 0 ]]; then
+    cat
+  else
+    sed "${sed_args[@]}"
+  fi
+}
+
 print_help() {
   cat <<EOF
 Usage:
@@ -261,12 +283,9 @@ delete)
   fi
 
   set +e
-  output=$("${command_args[@]}" 2>&1)
-  exit_code=$?
+  "${command_args[@]}" 2>&1 | sanitize_stream "${secrets[@]}"
+  exit_code=${PIPESTATUS[0]}
   set -e
-
-  sanitized=$(sanitize_output "$output" "${secrets[@]}")
-  printf '%s' "$sanitized"
 
   exit $exit_code
   ;;
