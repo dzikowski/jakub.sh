@@ -268,7 +268,7 @@ _jai_zsh_preexec() {
   JAI_ZSH_ACTIVE_URL="$term_url"
   JAI_ZSH_ACTIVE_COMMAND="$command_text"
 
-  _jai_zsh_longrun_start_after_threshold "$state_file" "$threshold" >/dev/null 2>&1 &
+  _jai_zsh_longrun_start_after_threshold "$state_file" "$threshold" >/dev/null 2>&1 &!
 }
 
 _jai_zsh_precmd() {
