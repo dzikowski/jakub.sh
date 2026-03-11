@@ -16,6 +16,8 @@ Usage:
   jai get    -p <project> [-i <id>] [--target <file>]
   jai rm     -p <project> [-i <id>] [--target <file>]
   jai watch  [--target <file>]
+  jai cursorhooks
+  jai zshhooks
   jai install-cursorhooks [directory]
   jai version
 
@@ -104,6 +106,16 @@ install_cursorhooks() {
         "command": "${debug_prefix}${hook_command} before-submit"
       }
     ],
+    "preToolUse": [
+      {
+        "command": "${debug_prefix}${hook_command} pre-tool"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "${debug_prefix}${hook_command} post-tool"
+      }
+    ],
     "afterAgentResponse": [
       {
         "command": "${debug_prefix}${hook_command} after-submit"
@@ -119,6 +131,177 @@ install_cursorhooks() {
 EOF
 
   printf 'Installed cursor hooks to %s\n' "$cursor_dir"
+}
+
+print_cursorhooks() {
+  local hook_command="jai-cursorhooks"
+  local debug_prefix=""
+  if [[ "${JAI_DEBUG:-}" == "true" ]]; then
+    debug_prefix="env JAI_DEBUG=true "
+  fi
+
+  cat <<EOF
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "${debug_prefix}${hook_command} before-submit"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "${debug_prefix}${hook_command} pre-tool"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "${debug_prefix}${hook_command} post-tool"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "${debug_prefix}${hook_command} after-submit"
+      }
+    ],
+    "stop": [
+      {
+        "command": "${debug_prefix}${hook_command} stop"
+      }
+    ]
+  }
+}
+EOF
+}
+
+print_zshhooks() {
+  cat <<'EOF'
+# Jai zsh hooks: track long-running terminal commands.
+# Install:
+#   jai zshhooks > ~/.jai-zshhooks.zsh
+#   echo 'source ~/.jai-zshhooks.zsh' >> ~/.zshrc
+#   exec zsh
+
+typeset -g JAI_ZSH_THRESHOLD_SECONDS="${JAI_ZSH_THRESHOLD_SECONDS:-10}"
+typeset -g JAI_ZSH_TARGET="${JAI_TARGET:-$HOME/.local/jai-status.md}"
+typeset -g JAI_ZSH_STATE_DIR="${JAI_ZSH_STATE_DIR:-/tmp/jai/zshhooks}"
+typeset -g JAI_ZSH_ACTIVE_REF=""
+typeset -g JAI_ZSH_ACTIVE_PROJECT=""
+typeset -g JAI_ZSH_ACTIVE_URL=""
+typeset -g JAI_ZSH_ACTIVE_COMMAND=""
+
+_jai_zsh_trim() {
+  local value="$1"
+  value="${value//$'\r'/ }"
+  value="${value//$'\n'/ }"
+  value="${value//$'\t'/ }"
+  value="$(print -r -- "$value" | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//')"
+  print -r -- "$value"
+}
+
+_jai_zsh_sanitize_ref() {
+  local value="$1"
+  value="${value//[^A-Za-z0-9_-]/}"
+  print -r -- "$value"
+}
+
+_jai_zsh_encode_url_part() {
+  local value="$1"
+  value="${value// /%20}"
+  value="${value//#/%23}"
+  print -r -- "$value"
+}
+
+_jai_zsh_build_terminal_url() {
+  local cwd="$(_jai_zsh_encode_url_part "$PWD")"
+  local tty_name="$(_jai_zsh_encode_url_part "$(tty 2>/dev/null || print -r -- unknown)")"
+  local host_name="${HOST:-$(hostname 2>/dev/null || print -r -- localhost)}"
+  print -r -- "terminal://${host_name}${tty_name}?cwd=${cwd}"
+}
+
+_jai_zsh_longrun_start_after_threshold() {
+  local state_file="$1"
+  local threshold="$2"
+  sleep "$threshold"
+
+  [[ -f "$state_file" ]] || return 0
+
+  local st_project="" st_ref="" st_target="" st_url="" st_command="" st_reported=""
+  IFS=$'\t' read -r st_project st_ref st_target st_url st_command st_reported < "$state_file" || return 0
+  [[ "$st_reported" == "0" ]] || return 0
+
+  if [[ -n "$st_url" ]]; then
+    jai start -p "$st_project" -i "$st_ref" -d "Terminal command: $st_command" -url "$st_url" --target "$st_target" >/dev/null 2>&1 || true
+  else
+    jai start -p "$st_project" -i "$st_ref" -d "Terminal command: $st_command" --target "$st_target" >/dev/null 2>&1 || true
+  fi
+
+  print -r -- "${st_project}"$'\t'"${st_ref}"$'\t'"${st_target}"$'\t'"${st_url}"$'\t'"${st_command}"$'\t'"1" > "$state_file"
+}
+
+_jai_zsh_preexec() {
+  local raw_command="$1"
+  local command_text="$(_jai_zsh_trim "$raw_command")"
+  [[ -n "$command_text" ]] || return 0
+
+  local project_name="${JAI_PROJECT:-${${PWD:A}:t}}"
+  project_name="$(_jai_zsh_trim "$project_name")"
+  [[ -n "$project_name" ]] || return 0
+
+  local threshold="${JAI_ZSH_THRESHOLD_SECONDS:-10}"
+  [[ "$threshold" == <-> ]] || threshold="10"
+  (( threshold >= 1 )) || threshold=1
+
+  local ref_raw="term-${EPOCHSECONDS}-${RANDOM}"
+  local ref="$(_jai_zsh_sanitize_ref "$ref_raw")"
+  [[ -n "$ref" ]] || ref="term-${EPOCHSECONDS}"
+
+  local term_url="$(_jai_zsh_build_terminal_url)"
+  local state_dir="${JAI_ZSH_STATE_DIR}"
+  mkdir -p "$state_dir" >/dev/null 2>&1 || true
+  local state_file="${state_dir}/${project_name}__${ref}.state"
+
+  print -r -- "${project_name}"$'\t'"${ref}"$'\t'"${JAI_ZSH_TARGET}"$'\t'"${term_url}"$'\t'"${command_text}"$'\t'"0" > "$state_file"
+
+  JAI_ZSH_ACTIVE_REF="$ref"
+  JAI_ZSH_ACTIVE_PROJECT="$project_name"
+  JAI_ZSH_ACTIVE_URL="$term_url"
+  JAI_ZSH_ACTIVE_COMMAND="$command_text"
+
+  _jai_zsh_longrun_start_after_threshold "$state_file" "$threshold" >/dev/null 2>&1 &
+}
+
+_jai_zsh_precmd() {
+  [[ -n "$JAI_ZSH_ACTIVE_REF" && -n "$JAI_ZSH_ACTIVE_PROJECT" ]] || return 0
+
+  local state_file="${JAI_ZSH_STATE_DIR}/${JAI_ZSH_ACTIVE_PROJECT}__${JAI_ZSH_ACTIVE_REF}.state"
+  if [[ -f "$state_file" ]]; then
+    local st_project="" st_ref="" st_target="" st_url="" st_command="" st_reported=""
+    IFS=$'\t' read -r st_project st_ref st_target st_url st_command st_reported < "$state_file" || true
+    if [[ "$st_reported" == "1" ]]; then
+      if [[ -n "$st_url" ]]; then
+        jai notify -p "$st_project" -i "$st_ref" -url "$st_url" --target "$st_target" >/dev/null 2>&1 || true
+      else
+        jai notify -p "$st_project" -i "$st_ref" --target "$st_target" >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -f "$state_file" >/dev/null 2>&1 || true
+  fi
+
+  JAI_ZSH_ACTIVE_REF=""
+  JAI_ZSH_ACTIVE_PROJECT=""
+  JAI_ZSH_ACTIVE_URL=""
+  JAI_ZSH_ACTIVE_COMMAND=""
+}
+
+if (( ${preexec_functions[(I)_jai_zsh_preexec]} == 0 )); then
+  preexec_functions+=(_jai_zsh_preexec)
+fi
+
+if (( ${precmd_functions[(I)_jai_zsh_precmd]} == 0 )); then
+  precmd_functions+=(_jai_zsh_precmd)
+fi
+EOF
 }
 
 validate_index() {
@@ -159,6 +342,16 @@ if [[ "$COMMAND" == "install-cursorhooks" ]]; then
     error "install-cursorhooks accepts at most one argument: [directory]"
   fi
   install_cursorhooks "${1:-~}"
+  exit 0
+fi
+
+if [[ "$COMMAND" == "zshhooks" ]]; then
+  print_zshhooks
+  exit 0
+fi
+
+if [[ "$COMMAND" == "cursorhooks" ]]; then
+  print_cursorhooks
   exit 0
 fi
 

@@ -16,9 +16,11 @@ Installs all tools into `~/.local/bin`.
 
 ## jai
 
-Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. Once you install Cursor Hooks, `jai` manages a single Markdown document with all current progress of agent sessions.
+Allows to track progress of tasks/agents from multiple Cursor IDE windows and CLI sessions. `jai` supports both Cursor hooks and generic Zsh hooks, and manages a single Markdown document with current progress.
 
 ```bash
+jai cursorhooks
+jai zshhooks
 jai install-cursorhooks [directory]
 ```
 

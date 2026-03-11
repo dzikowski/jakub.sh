@@ -155,6 +155,23 @@ assert_contains "$gamma_review" "GAMMA#0: REVIEW_REQUIRED - Done, ready for revi
 
 printf 'Phase 4 (start) passed.\n'
 
+# Phase 4b: zshhooks command should print installable hook snippet
+zshhooks_output="$("$JAI" zshhooks)"
+assert_contains "$zshhooks_output" "_jai_zsh_preexec" "zshhooks should include preexec hook function"
+assert_contains "$zshhooks_output" "_jai_zsh_precmd" "zshhooks should include precmd hook function"
+assert_contains "$zshhooks_output" "JAI_ZSH_THRESHOLD_SECONDS" "zshhooks should expose threshold variable"
+assert_contains "$zshhooks_output" "terminal://" "zshhooks should include generic terminal url"
+
+printf 'Phase 4b (zshhooks output) passed.\n'
+
+# Phase 4c: cursorhooks command should print hooks json
+cursorhooks_output="$("$JAI" cursorhooks)"
+assert_contains "$cursorhooks_output" "\"beforeSubmitPrompt\"" "cursorhooks should include beforeSubmitPrompt hook"
+assert_contains "$cursorhooks_output" "\"preToolUse\"" "cursorhooks should include preToolUse hook"
+assert_contains "$cursorhooks_output" "jai-cursorhooks before-submit" "cursorhooks should reference jai-cursorhooks command"
+
+printf 'Phase 4c (cursorhooks output) passed.\n'
+
 # Phase 5: install-cursorhooks + hook command flow via jai-cursorhooks
 rm -rf "$INSTALL_DIR" "$INSTALL_DIR_DEBUG"
 PATH="$SCRIPT_DIR:$PATH" "$JAI" install-cursorhooks "$INSTALL_DIR" >/dev/null
@@ -163,9 +180,13 @@ PATH="$SCRIPT_DIR:$PATH" "$JAI" install-cursorhooks "$INSTALL_DIR" >/dev/null
 installed_hooks_json="$(<"$INSTALL_DIR/.cursor/hooks.json")"
 assert_contains "$installed_hooks_json" "\"version\": 1" "install-cursorhooks should write hooks schema version"
 assert_contains "$installed_hooks_json" "\"beforeSubmitPrompt\"" "install-cursorhooks should configure beforeSubmitPrompt"
+assert_contains "$installed_hooks_json" "\"preToolUse\"" "install-cursorhooks should configure preToolUse"
+assert_contains "$installed_hooks_json" "\"postToolUse\"" "install-cursorhooks should configure postToolUse"
 assert_contains "$installed_hooks_json" "\"afterAgentResponse\"" "install-cursorhooks should configure afterAgentResponse"
 assert_contains "$installed_hooks_json" "\"stop\"" "install-cursorhooks should configure stop"
 assert_contains "$installed_hooks_json" "jai-cursorhooks before-submit" "install-cursorhooks should point to global hook command"
+assert_contains "$installed_hooks_json" "jai-cursorhooks pre-tool" "install-cursorhooks should point preToolUse to hook command"
+assert_contains "$installed_hooks_json" "jai-cursorhooks post-tool" "install-cursorhooks should point postToolUse to hook command"
 assert_not_contains "$installed_hooks_json" "JAI_DEBUG=true" "install-cursorhooks should not prepend debug env by default"
 
 PATH="$SCRIPT_DIR:$PATH" JAI_DEBUG=true "$JAI" install-cursorhooks "$INSTALL_DIR_DEBUG" >/dev/null
