@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 KEYCHAIN_SERVICE="sekey-env"
 
 # Detect OS
@@ -184,9 +184,9 @@ Usage:
   $0 --help
 
 Commands:
-  set       Store secret in $STORAGE_NAME (prompts for value)
+  set       Store secret in $STORAGE_NAME (prompts for value; uses /dev/tty when stdin is not a terminal)
   delete    Remove secret from $STORAGE_NAME
-  --env     Inject secrets into environment and sanitize output
+  --env     Inject secrets into environment and sanitize output (skipped when stdout and stderr are both terminals)
   version   Show version
 EOF
 }
@@ -202,8 +202,17 @@ set)
 
   validate_env_name "$env_name"
 
-  read -rsp "Enter value for ${env_name} (hidden): " value
-  echo
+  if [[ -t 0 ]]; then
+    read -rsp "Enter value for ${env_name} (hidden): " value
+    echo
+  elif [[ -r /dev/tty && -w /dev/tty ]] && sh -c 'exec </dev/tty; [ -t 0 ]' 2>/dev/null; then
+    printf '%s' "Enter value for ${env_name} (hidden): " > /dev/tty
+    IFS= read -rs value < /dev/tty || true
+    printf '\n' > /dev/tty
+  else
+    read -rsp "Enter value for ${env_name} (hidden): " value
+    echo
+  fi
 
   [[ -n "$value" ]] || error "Empty value not allowed"
 
@@ -283,8 +292,13 @@ delete)
   fi
 
   set +e
-  "${command_args[@]}" 2>&1 | sanitize_stream "${secrets[@]}"
-  exit_code=${PIPESTATUS[0]}
+  if [[ -t 1 && -t 2 ]]; then
+    "${command_args[@]}"
+    exit_code=$?
+  else
+    "${command_args[@]}" 2>&1 | sanitize_stream "${secrets[@]}"
+    exit_code=${PIPESTATUS[0]}
+  fi
   set -e
 
   exit $exit_code
