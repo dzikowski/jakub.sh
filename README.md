@@ -50,3 +50,15 @@ sekey --env MY_SECRET command.sh
 ```
 ⇨ sekey / [README.md](sekey/README.md)
 
+## html-review
+
+Standalone browser script for adding Word-style comments and suggested edits to any HTML page. It stores review state in localStorage per page and exports structured JSON for sending feedback back to a coding agent.
+
+```html
+<script src="https://jakub.sh/html-review/html-review.js"></script>
+```
+
+Not installed by `install`; use it directly from GitHub Pages.
+
+⇨ html-review / [README.md](html-review/README.md) / [demo](html-review/demo.html)
+
