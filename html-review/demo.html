@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>html-review demo</title>
+  <style>
+    body {
+      margin: 0;
+      color: #111827;
+      background: #f8fafc;
+      font: 16px/1.6 system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    main {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 64px 24px 120px;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 24px;
+      padding: 36px;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, .08);
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(36px, 7vw, 72px);
+      line-height: .95;
+      letter-spacing: -.06em;
+    }
+
+    .lede {
+      color: #475569;
+      font-size: 20px;
+      margin-bottom: 28px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .tile {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 18px;
+      background: #f9fafb;
+    }
+
+    .tile h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    code {
+      background: #eef2ff;
+      border-radius: 6px;
+      padding: 2px 5px;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 12px 0 0;
+      padding: 12px;
+      background: #111827;
+      color: #f9fafb;
+      border-radius: 12px;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Review any HTML in place.</h1>
+      <p class="lede">
+        Select and start typing. Turn what you type into a comment or replacement, or press Delete
+        to suggest removing the selected text.
+      </p>
+      <p>
+        This demo stores annotations in localStorage for this page. Use Export review in the lower-right
+        corner to copy review JSON that can be pasted back into a coding agent.
+      </p>
+
+      <div class="grid">
+        <article class="tile">
+          <h2>Comment</h2>
+          <p>Select and start typing, then choose Comment. Notes appear in the right review margin.</p>
+        </article>
+        <article class="tile">
+          <h2>Suggest edit</h2>
+          <p>Select and start typing, then press Cmd/Ctrl+Enter to submit a suggestion. Press Delete for removal.</p>
+        </article>
+        <article class="tile">
+          <h2>Export</h2>
+          <p>The export includes one global page object and compact entries with <code>quote</code> and <code>cssPath</code>.</p>
+        </article>
+        <article class="tile">
+          <h2>Embed</h2>
+          <p>Add this script to any generated HTML page:</p>
+          <pre>&lt;script src="https://jakub.sh/html-review/html-review.js"&gt;&lt;/script&gt;</pre>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script src="./html-review.js"></script>
+</body>
+</html>
