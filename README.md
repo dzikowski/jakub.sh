@@ -54,6 +54,8 @@ sekey --env MY_SECRET command.sh
 
 Standalone browser script for adding Word-style comments and suggested edits to any HTML page. It stores review state in localStorage per page and exports structured JSON for sending feedback back to a coding agent.
 
+![html-review screenshot](html-review/html-review-screenshot.png)
+
 ```html
 <script src="https://jakub.sh/html-review/html-review.js"></script>
 ```

@@ -4,6 +4,8 @@
 
 Use it when a coding agent gives you an HTML response, design mockup, or generated page and you want to mark changes directly in the browser, then export those edits back to the agent as structured JSON.
 
+![html-review screenshot](html-review-screenshot.png)
+
 ## Quick start
 
 Embed the script in any HTML page:
@@ -20,11 +22,10 @@ Or, for local testing inside this repository:
 
 Then open the page in a browser:
 
-1. Select text.
-2. Choose `Comment` or `Suggest edit`.
-3. Write the comment or replacement in the in-place popover.
-4. Click an existing highlight to edit it; existing edits save immediately as you type.
-5. Use `Export review JSON` to copy or download all annotations for the page.
+1. Select and start typing.
+2. Choose `Comment` to create a visible right-side note, or `Submit suggestion` to suggest replacement text.
+3. Press `Delete` or `Backspace` to suggest removing selected text.
+4. Use `Export review` to copy or download all annotations for the page.
 
 Annotations are stored in `localStorage` per origin and path, so each page gets its own review state.
 
@@ -56,7 +57,6 @@ Exports are one page object plus an `entries` array. Comments use `content`; sug
         "exact": "selected original text",
         "prefix": "text before the selection",
         "suffix": "text after the selection"
-      }
       },
       "contentBefore": "selected original text",
       "contentAfter": "replacement text",
@@ -68,6 +68,20 @@ Exports are one page object plus an `entries` array. Comments use `content`; sug
 ```
 
 The primary locator is the `quote` selector plus `occurrence`; `cssPath` narrows the search area. This is more useful for agent handoff than XPath because generated HTML often changes structure between revisions.
+
+## Keyboard flow
+
+With text selected:
+
+- Start typing to open the review composer.
+- `Comment` creates a visible note in the right review margin.
+- `Submit suggestion` records the typed text as a suggested replacement.
+- `Delete` or `Backspace` records a suggested deletion.
+- `Esc` cancels the popup.
+- `Cmd/Ctrl + Enter` submits a suggestion.
+- `Cmd/Ctrl + Shift + Enter` comments.
+
+Click an existing comment or edit to change it in the popup. Popup edits save as you type.
 
 ## Agent prompt
 
