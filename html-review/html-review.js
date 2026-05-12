@@ -7,7 +7,8 @@
 
   var STORAGE_PREFIX = "html-review:";
   var MARK_ATTR = "data-html-review-id";
-  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-popover, .hr-mobile-review, .hr-fixedbar, .hr-export-dialog";
+  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-notes-rail, .hr-popover, .hr-mobile-review, .hr-fixedbar, .hr-export-dialog";
+  var NOTES_RAIL_ID = "html-review-notes-rail";
 
   var state = {
     annotations: [],
@@ -56,7 +57,10 @@
     style.textContent = [
       ".hr-mark{cursor:pointer;border-radius:2px;padding:0 1px;}",
       ".hr-comment{position:relative;background:#fff7cc;border-bottom:2px solid #d69e2e;box-decoration-break:clone;-webkit-box-decoration-break:clone;}",
-      ".hr-note{position:fixed;right:16px;top:16px;width:240px;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:0 10px 24px rgba(120,53,15,.14);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;z-index:2147483645;outline:none;}",
+      ".hr-notes-rail{display:none;}",
+      ".hr-notes-rail:not(:empty){display:flex;position:fixed;z-index:2147483643;top:16px;right:16px;width:min(280px,calc(100vw - 32px));max-height:calc(100vh - 96px);overflow-y:auto;overflow-x:hidden;flex-direction:column;gap:10px;padding:0;box-sizing:border-box;-webkit-overflow-scrolling:touch;}",
+      ".hr-note{position:relative;width:100%;box-sizing:border-box;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:0 10px 24px rgba(120,53,15,.14);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;outline:none;flex-shrink:0;}",
+      ".hr-note:hover{filter:brightness(.985);}",
       ".hr-note:empty::before{content:'Comment';color:#92400e;font-style:italic;}",
       ".hr-connector{position:fixed;height:0;border-top:2px dotted #d69e2e;transform-origin:left center;pointer-events:none;z-index:2147483644;}",
       ".hr-change del{color:#b42318;background:#fee4e2;text-decoration:line-through;text-decoration-thickness:2px;}",
@@ -248,40 +252,61 @@
     if (selection) selection.removeAllRanges();
   }
 
-  function createNote(annotation) {
+  function notesRail() {
+    var rail = document.getElementById(NOTES_RAIL_ID);
+    if (rail) return rail;
+
+    rail = document.createElement("div");
+    rail.id = NOTES_RAIL_ID;
+    rail.className = "hr-notes-rail";
+    rail.setAttribute("aria-label", "Review comments");
+    rail.addEventListener("scroll", scheduleReviewNotePositioning, { passive: true });
+    document.body.appendChild(rail);
+    return rail;
+  }
+
+  function createCommentUi(annotation) {
     var connector = document.createElement("span");
     connector.className = "hr-connector";
 
-    var note = document.createElement("span");
+    var note = document.createElement("div");
     note.className = "hr-note";
+    note.setAttribute("data-hr-note-for", annotation.id);
     note.setAttribute("aria-label", "Review comment");
     note.textContent = annotation.content || "";
 
-    var fragment = document.createDocumentFragment();
-    fragment.appendChild(connector);
-    fragment.appendChild(note);
-    return fragment;
+    notesRail().appendChild(note);
+    return { connector: connector, note: note };
   }
 
   function positionReviewNotes() {
-    document.querySelectorAll(".hr-comment").forEach(function (mark) {
-      var note = mark.querySelector(".hr-note");
+    var rail = document.getElementById(NOTES_RAIL_ID);
+    if (!rail) return;
+
+    var marks = Array.prototype.filter.call(
+      document.querySelectorAll(".hr-comment[" + MARK_ATTR + "]"),
+      function (m) {
+        return Boolean(m.querySelector(".hr-connector"));
+      }
+    );
+
+    marks.sort(function (a, b) {
+      return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+    });
+
+    marks.forEach(function (mark) {
+      var id = mark.getAttribute(MARK_ATTR);
+      var note = rail.querySelector(".hr-note[data-hr-note-for='" + id + "']");
+      if (note) rail.appendChild(note);
+    });
+
+    marks.forEach(function (mark) {
       var connector = mark.querySelector(".hr-connector");
-      if (!note) return;
+      var id = mark.getAttribute(MARK_ATTR);
+      var note = document.querySelector(".hr-note[data-hr-note-for='" + id + "']");
+      if (!connector || !note) return;
 
       var rect = mark.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > window.innerHeight) {
-        note.style.display = "none";
-        if (connector) connector.style.display = "none";
-        return;
-      }
-
-      note.style.display = "block";
-      var maxTop = Math.max(12, window.innerHeight - note.offsetHeight - 12);
-      var top = Math.min(maxTop, Math.max(12, rect.top - 6));
-      note.style.top = top + "px";
-
-      if (!connector) return;
       var noteRect = note.getBoundingClientRect();
       var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + 4));
       var startY = rect.top + rect.height / 2;
@@ -290,7 +315,7 @@
       var dx = endX - startX;
       var dy = endY - startY;
 
-      if (dx <= 8) {
+      if (rect.bottom < -8 || rect.top > window.innerHeight + 8 || dx <= 8) {
         connector.style.display = "none";
         return;
       }
@@ -356,7 +381,10 @@
     }
 
     span.appendChild(textNode);
-    if (includeReviewNote) span.appendChild(createNote(annotation));
+    if (includeReviewNote) {
+      var commentUi = createCommentUi(annotation);
+      span.appendChild(commentUi.connector);
+    }
     return span;
   }
 
@@ -403,9 +431,12 @@
       return;
     }
 
-    mark.querySelectorAll(".hr-note,.hr-connector").forEach(function (reviewUi) {
+    var rid = mark.getAttribute(MARK_ATTR);
+    mark.querySelectorAll(".hr-connector").forEach(function (reviewUi) {
       reviewUi.remove();
     });
+    var railNote = rid && document.querySelector(".hr-note[data-hr-note-for='" + rid + "']");
+    if (railNote) railNote.remove();
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
     parent.removeChild(mark);
     parent.normalize();
@@ -500,7 +531,7 @@
       var mark = document.querySelector("[" + MARK_ATTR + "='" + annotation.id + "']");
       if (mark) {
         mark.title = value;
-        var note = mark.querySelector(".hr-note");
+        var note = document.querySelector(".hr-note[data-hr-note-for='" + annotation.id + "']");
         if (note && note.textContent !== value) note.textContent = value;
         scheduleReviewNotePositioning();
       }
@@ -866,7 +897,7 @@
   }
 
   function isReviewUiTarget(target) {
-    return target && target.closest(".hr-popover,.hr-mobile-review,.hr-fixedbar,.hr-export-dialog,.hr-note");
+    return target && target.closest(".hr-popover,.hr-mobile-review,.hr-fixedbar,.hr-export-dialog,.hr-notes-rail,.hr-note");
   }
 
   function isEditableTarget(target) {
@@ -934,6 +965,18 @@
     });
 
     document.addEventListener("click", function (event) {
+      var noteEl = event.target && event.target.closest(".hr-note[data-hr-note-for]");
+      if (noteEl) {
+        var nid = noteEl.getAttribute("data-hr-note-for");
+        var marked = nid && document.querySelector(".hr-comment[" + MARK_ATTR + "='" + nid + "']");
+        if (marked) {
+          event.preventDefault();
+          event.stopPropagation();
+          showPopover(marked);
+        }
+        return;
+      }
+
       var mark = event.target && event.target.closest("[" + MARK_ATTR + "]");
       if (mark) {
         event.preventDefault();
@@ -957,6 +1000,7 @@
   function init(options) {
     state.options = Object.assign({}, state.options, options || {});
     injectStyles();
+    notesRail();
     state.annotations = loadAnnotations();
     if (state.options.autoRestore) restoreAnnotations();
     createFixedBar();
@@ -973,6 +1017,8 @@
       state.annotations = [];
       hideMobileReviewButton();
       hidePopover();
+      var rail = document.getElementById(NOTES_RAIL_ID);
+      if (rail) rail.innerHTML = "";
     },
     annotations: function () {
       return state.annotations.slice();
