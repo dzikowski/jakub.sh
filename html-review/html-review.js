@@ -71,8 +71,9 @@
       ".hr-popover .hr-title{font-weight:700;margin-bottom:4px;}",
       ".hr-popover .hr-meta{color:#6b7280;font-size:12px;margin-bottom:8px;}",
       ".hr-popover .hr-status{color:#6b7280;font-size:12px;min-height:16px;margin-top:-2px;margin-bottom:8px;}",
-      ".hr-popover .hr-actions{display:flex;gap:8px;align-items:center;}",
+      ".hr-popover .hr-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}",
       ".hr-popover [data-hr-popover='cancel']{margin-right:auto;}",
+      ".hr-popover .hr-convert-action{background:#f3f4f6;color:#111827;border:1px solid #d1d5db;}",
       ".hr-popover .hr-comment-action{background:#fef3c7;color:#92400e;border:1px solid #f2c94c;}",
       ".hr-popover .hr-suggestion-action{background:#111827;color:white;border:1px solid #111827;}",
       ".hr-popover .hr-primary{background:#111827;color:white;}",
@@ -417,6 +418,38 @@
     hidePopover();
   }
 
+  function removeAnnotationDomOnly(id) {
+    document.querySelectorAll("[" + MARK_ATTR + "='" + id + "']").forEach(removeMarkElement);
+  }
+
+  function convertCommentToSuggestion(annotation) {
+    var text = popover().querySelector("textarea").value;
+    removeAnnotationDomOnly(annotation.id);
+    annotation.type = "change";
+    annotation.updatedAt = new Date().toISOString();
+    delete annotation.content;
+    annotation.contentBefore = annotation.anchor && annotation.anchor.quote ? annotation.anchor.quote.exact : "";
+    annotation.contentAfter = text;
+    updateAnnotation(annotation);
+    applyAnnotation(annotation);
+    var mark = document.querySelector("[" + MARK_ATTR + "='" + annotation.id + "']");
+    if (mark) showPopover(mark);
+  }
+
+  function convertSuggestionToComment(annotation) {
+    var text = popover().querySelector("textarea").value;
+    removeAnnotationDomOnly(annotation.id);
+    annotation.type = "comment";
+    annotation.updatedAt = new Date().toISOString();
+    delete annotation.contentBefore;
+    delete annotation.contentAfter;
+    annotation.content = text;
+    updateAnnotation(annotation);
+    applyAnnotation(annotation);
+    var mark = document.querySelector("[" + MARK_ATTR + "='" + annotation.id + "']");
+    if (mark) showPopover(mark);
+  }
+
   function updateAnnotation(annotation) {
     var index = state.annotations.findIndex(function (item) {
       return item.id === annotation.id;
@@ -546,6 +579,8 @@
       "<div class=\"hr-actions\">",
       "<button type=\"button\" data-hr-popover=\"cancel\">Cancel</button>",
       "<button type=\"button\" class=\"hr-danger\" data-hr-popover=\"remove\">Remove</button>",
+      "<button type=\"button\" class=\"hr-convert-action\" data-hr-popover=\"to-suggestion\">Convert to suggestion</button>",
+      "<button type=\"button\" class=\"hr-convert-action\" data-hr-popover=\"to-comment\">Convert to comment</button>",
       "<button type=\"button\" class=\"hr-comment-action\" data-hr-popover=\"comment\">Comment</button>",
       "<button type=\"button\" class=\"hr-suggestion-action\" data-hr-popover=\"replace\">Submit suggestion</button>",
       "</div>"
@@ -604,6 +639,19 @@
       if (action === "remove") {
         var annotation = annotationById(state.activeId);
         if (annotation) removeAnnotation(annotation.id);
+        return;
+      }
+
+      if (action === "to-suggestion") {
+        var toChange = annotationById(state.activeId);
+        if (toChange && toChange.type === "comment") convertCommentToSuggestion(toChange);
+        return;
+      }
+
+      if (action === "to-comment") {
+        var toComment = annotationById(state.activeId);
+        if (toComment && toComment.type === "change") convertSuggestionToComment(toComment);
+        return;
       }
     });
 
@@ -619,10 +667,18 @@
     var commentButton = el.querySelector("[data-hr-popover='comment']");
     var replaceButton = el.querySelector("[data-hr-popover='replace']");
     var cancelButton = el.querySelector("[data-hr-popover='cancel']");
+    var toSuggestionButton = el.querySelector("[data-hr-popover='to-suggestion']");
+    var toCommentButton = el.querySelector("[data-hr-popover='to-comment']");
 
     removeButton.style.display = mode === "edit" ? "" : "none";
     commentButton.style.display = mode === "create" ? "" : "none";
     replaceButton.style.display = mode === "create" ? "" : "none";
+    if (toSuggestionButton) {
+      toSuggestionButton.style.display = mode === "edit" && type === "comment" ? "" : "none";
+    }
+    if (toCommentButton) {
+      toCommentButton.style.display = mode === "edit" && type === "change" ? "" : "none";
+    }
     removeButton.textContent = type === "comment" ? "Remove comment" : "Remove suggestion";
     cancelButton.textContent = "Cancel";
   }
