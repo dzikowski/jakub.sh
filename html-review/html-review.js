@@ -307,6 +307,16 @@
       if (!connector || !note) return;
 
       var rect = mark.getBoundingClientRect();
+
+      if (rect.bottom < -8 || rect.top > window.innerHeight + 8) {
+        connector.style.display = "none";
+        note.style.display = "none";
+        note.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      var noteWasHidden = note.style.display === "none";
+      if (noteWasHidden) note.style.display = "";
       var noteRect = note.getBoundingClientRect();
       var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + 4));
       var startY = rect.top + rect.height / 2;
@@ -315,12 +325,16 @@
       var dx = endX - startX;
       var dy = endY - startY;
 
-      if (rect.bottom < -8 || rect.top > window.innerHeight + 8 || dx <= 8) {
+      if (dx <= 8) {
         connector.style.display = "none";
+        note.style.display = "none";
+        note.setAttribute("aria-hidden", "true");
         return;
       }
 
       connector.style.display = "block";
+      note.style.display = "";
+      note.removeAttribute("aria-hidden");
       connector.style.left = startX + "px";
       connector.style.top = startY + "px";
       connector.style.width = Math.sqrt(dx * dx + dy * dy) + "px";
