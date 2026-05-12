@@ -7,7 +7,7 @@
 
   var STORAGE_PREFIX = "html-review:";
   var MARK_ATTR = "data-html-review-id";
-  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-popover, .hr-fixedbar, .hr-export-dialog";
+  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-popover, .hr-mobile-review, .hr-fixedbar, .hr-export-dialog";
 
   var state = {
     annotations: [],
@@ -15,6 +15,7 @@
     activeId: null,
     activeType: null,
     notesFrame: null,
+    selectionFrame: null,
     options: {
       storageKey: null,
       autoRestore: true
@@ -78,6 +79,7 @@
       ".hr-popover .hr-suggestion-action{background:#111827;color:white;border:1px solid #111827;}",
       ".hr-popover .hr-primary{background:#111827;color:white;}",
       ".hr-popover .hr-danger{background:#fee2e2;color:#991b1b;}",
+      ".hr-mobile-review{position:fixed;z-index:2147483647;display:none;border:0;border-radius:999px;padding:9px 13px;background:#111827;color:white;box-shadow:0 12px 28px rgba(15,23,42,.28);font:600 13px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;}",
       ".hr-export-dialog{position:fixed;z-index:2147483647;inset:5vh 5vw;display:none;background:white;color:#111827;border:1px solid #d1d5db;border-radius:14px;box-shadow:0 24px 70px rgba(15,23,42,.35);padding:16px;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;}",
       ".hr-export-dialog textarea{width:100%;height:calc(100% - 90px);box-sizing:border-box;border:1px solid #d1d5db;border-radius:10px;padding:10px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;}",
       ".hr-export-dialog .hr-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}",
@@ -486,6 +488,7 @@
     saveAnnotations();
     state.activeRange = null;
     clearSelection();
+    hideMobileReviewButton();
     return annotation;
   }
 
@@ -547,6 +550,70 @@
     var rect = range.getBoundingClientRect();
     el.style.left = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, rect.left)) + "px";
     el.style.top = Math.max(8, Math.min(window.innerHeight - el.offsetHeight - 8, rect.bottom + 8)) + "px";
+  }
+
+  function isCoarsePointer() {
+    return Boolean(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  }
+
+  function createMobileReviewButton() {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "hr-mobile-review";
+    button.textContent = "Review";
+    document.body.appendChild(button);
+
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      showComposer("");
+    });
+
+    return button;
+  }
+
+  function mobileReviewButton() {
+    return document.querySelector(".hr-mobile-review") || createMobileReviewButton();
+  }
+
+  function hideMobileReviewButton() {
+    var button = document.querySelector(".hr-mobile-review");
+    if (button) button.style.display = "none";
+  }
+
+  function showMobileReviewButton(range) {
+    if (!isCoarsePointer() || !range) return;
+
+    state.activeRange = range;
+    var rect = range.getBoundingClientRect();
+    var button = mobileReviewButton();
+    button.style.display = "block";
+
+    var left = rect.left + rect.width / 2 - button.offsetWidth / 2;
+    var top = rect.bottom + 10;
+    if (top + button.offsetHeight + 8 > window.innerHeight) top = rect.top - button.offsetHeight - 10;
+
+    button.style.left = Math.max(8, Math.min(window.innerWidth - button.offsetWidth - 8, left)) + "px";
+    button.style.top = Math.max(8, Math.min(window.innerHeight - button.offsetHeight - 8, top)) + "px";
+  }
+
+  function updateMobileSelectionButton() {
+    if (!isCoarsePointer()) return;
+
+    var range = selectedRange();
+    if (range) {
+      showMobileReviewButton(range);
+    } else {
+      hideMobileReviewButton();
+    }
+  }
+
+  function scheduleMobileSelectionButton() {
+    if (!isCoarsePointer() || state.selectionFrame) return;
+    state.selectionFrame = window.requestAnimationFrame(function () {
+      state.selectionFrame = null;
+      updateMobileSelectionButton();
+    });
   }
 
   function createFixedBar() {
@@ -700,6 +767,7 @@
     configurePopoverActions(el, "create", "change");
 
     el.style.display = "block";
+    hideMobileReviewButton();
     positionPopoverForRange(range, el);
     el.querySelector("textarea").focus();
     el.querySelector("textarea").setSelectionRange(el.querySelector("textarea").value.length, el.querySelector("textarea").value.length);
@@ -736,6 +804,7 @@
   function hidePopover() {
     state.activeId = null;
     state.activeType = null;
+    hideMobileReviewButton();
     document.querySelectorAll(".hr-active").forEach(function (item) {
       item.classList.remove("hr-active");
     });
@@ -797,7 +866,7 @@
   }
 
   function isReviewUiTarget(target) {
-    return target && target.closest(".hr-popover,.hr-fixedbar,.hr-export-dialog,.hr-note");
+    return target && target.closest(".hr-popover,.hr-mobile-review,.hr-fixedbar,.hr-export-dialog,.hr-note");
   }
 
   function isEditableTarget(target) {
@@ -819,9 +888,19 @@
       if (isReviewUiTarget(event.target)) return;
       window.setTimeout(function () {
         var range = selectedRange();
-        if (range) state.activeRange = range;
+        if (range) {
+          state.activeRange = range;
+          showMobileReviewButton(range);
+        }
       }, 0);
     });
+
+    document.addEventListener("touchend", function (event) {
+      if (isReviewUiTarget(event.target)) return;
+      window.setTimeout(scheduleMobileSelectionButton, 0);
+    });
+
+    document.addEventListener("selectionchange", scheduleMobileSelectionButton);
 
     document.addEventListener("mousedown", function (event) {
       if (isReviewUiTarget(event.target)) return;
@@ -865,10 +944,12 @@
 
     window.addEventListener("resize", function () {
       hidePopover();
+      hideMobileReviewButton();
       scheduleReviewNotePositioning();
     });
 
     window.addEventListener("scroll", function () {
+      hideMobileReviewButton();
       scheduleReviewNotePositioning();
     });
   }
@@ -890,6 +971,7 @@
       localStorage.removeItem(storageKey());
       document.querySelectorAll("[" + MARK_ATTR + "]").forEach(removeMarkElement);
       state.annotations = [];
+      hideMobileReviewButton();
       hidePopover();
     },
     annotations: function () {
