@@ -7,7 +7,9 @@
 
   var STORAGE_PREFIX = "html-review:";
   var MARK_ATTR = "data-html-review-id";
-  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-popover, .hr-mobile-review, .hr-fixedbar, .hr-export-dialog";
+  var ROOT_SKIP_SELECTOR = "script, style, textarea, input, select, option, button, [contenteditable], .hr-note, .hr-notes-rail, .hr-notes-rail-footer, .hr-popover, .hr-mobile-review, .hr-fixedbar, .hr-export-dialog";
+  var NOTES_RAIL_ID = "html-review-notes-rail";
+  var NARROW_VIEWPORT_BREAKPOINT_PX = 640;
 
   var state = {
     annotations: [],
@@ -34,6 +36,44 @@
     return state.options.storageKey || pageKey();
   }
 
+  function isNarrowReviewViewport() {
+    try {
+      if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) return true;
+    } catch (e) {
+      /**/
+    }
+    return window.innerWidth <= NARROW_VIEWPORT_BREAKPOINT_PX;
+  }
+
+  /** Click/touch may target a Text node, which has no `.closest()` in some browsers. */
+  function eventTargetElement(ev) {
+    var n = ev && ev.target;
+    if (!n) return null;
+    return n.nodeType === 3 ? n.parentElement : n;
+  }
+
+  function syncNotesRailVisibilityClass() {
+    var rail = document.getElementById(NOTES_RAIL_ID);
+    if (!rail) return;
+    rail.classList.toggle("hr-notes-visible", Boolean(rail.querySelector(".hr-note")));
+    syncNarrowRailChromeClass();
+  }
+
+  function syncNarrowRailChromeClass() {
+    try {
+      document.body.classList.toggle(
+        "hr-narrow-rail-open",
+        isNarrowReviewViewport() &&
+          Boolean(
+            document.getElementById(NOTES_RAIL_ID) &&
+              document.getElementById(NOTES_RAIL_ID).classList.contains("hr-notes-visible")
+          )
+      );
+    } catch (e) {
+      /**/
+    }
+  }
+
   function loadAnnotations() {
     try {
       var raw = localStorage.getItem(storageKey());
@@ -51,12 +91,55 @@
   function injectStyles() {
     if (document.getElementById("html-review-styles")) return;
 
+    var bp = String(NARROW_VIEWPORT_BREAKPOINT_PX);
+    var mobRailSheet =
+      "top:auto;bottom:0;left:0;right:0;width:100%;max-width:none;height:auto;max-height:33vh;min-height:0;transform:none;" +
+      "padding:0;border-radius:14px 14px 0 0;overflow:hidden;" +
+      "box-shadow:0 -8px 28px rgba(15,23,42,.12);border:1px solid rgba(246,209,133,.72);border-bottom:0;" +
+      "background:rgba(254,252,246,.96);display:flex;flex-direction:column;box-sizing:border-box;";
+
+    var mobRailFooter =
+      "display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;flex-shrink:0;" +
+      "padding:10px max(12px,env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-right,0px));" +
+      "border-top:1px solid rgba(246,209,133,.72);background:rgba(255,255,255,.94);font:13px/1.3 system-ui,-apple-system,Segoe UI,sans-serif;pointer-events:auto;box-sizing:border-box;";
+
     var style = document.createElement("style");
     style.id = "html-review-styles";
     style.textContent = [
-      ".hr-mark{cursor:pointer;border-radius:2px;padding:0 1px;}",
+      ".hr-mark{cursor:pointer;touch-action:manipulation;-webkit-touch-callout:none;border-radius:2px;padding:0 1px;}",
       ".hr-comment{position:relative;background:#fff7cc;border-bottom:2px solid #d69e2e;box-decoration-break:clone;-webkit-box-decoration-break:clone;}",
-      ".hr-note{position:fixed;right:16px;top:16px;width:240px;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:0 10px 24px rgba(120,53,15,.14);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;z-index:2147483645;outline:none;}",
+      ".hr-notes-rail{display:none;}",
+      ".hr-notes-rail.hr-notes-visible{display:block;position:fixed;z-index:2147483643;top:0;right:0;bottom:96px;width:min(280px,calc(100vw - 32px));overflow-x:hidden;overflow-y:auto;pointer-events:auto;-webkit-overflow-scrolling:touch;padding:0 0 0 14px;box-sizing:border-box;}",
+      ".hr-notes-rail:has(.hr-note){display:block;position:fixed;z-index:2147483643;top:0;right:0;bottom:96px;width:min(280px,calc(100vw - 32px));overflow-x:hidden;overflow-y:auto;pointer-events:auto;-webkit-overflow-scrolling:touch;padding:0 0 0 14px;box-sizing:border-box;}",
+      ".hr-notes-rail-sizer{position:relative;width:100%;min-height:100%;pointer-events:none;box-sizing:border-box;}",
+      "@media(max-width:" + bp + "px){.hr-notes-rail.hr-notes-visible{" + mobRailSheet + "}}",
+      "@media(max-width:" + bp + "px){.hr-notes-rail:has(.hr-note){" + mobRailSheet + "}}",
+      "@media(max-width:" +
+        bp +
+        "px){.hr-notes-rail-sizer{min-height:0;flex:1 1 auto;display:flex;flex-direction:column;gap:8px;pointer-events:auto;padding:10px max(12px,env(safe-area-inset-left,0px)) 8px max(12px,env(safe-area-inset-right,0px));overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box;}}",
+      "@media(max-width:" +
+        bp +
+        "px){.hr-notes-rail-sizer .hr-note{position:relative;top:auto;" +
+        "left:auto;right:auto;width:100%;max-width:none;flex-shrink:0;" +
+        "touch-action:manipulation;-webkit-touch-callout:none}}",
+      ".hr-notes-rail-footer{display:none;}",
+      "@media(max-width:" + bp + "px){.hr-notes-rail.hr-notes-visible .hr-notes-rail-footer{" + mobRailFooter + "}}",
+      "@media(max-width:" + bp + "px){.hr-notes-rail:has(.hr-note) .hr-notes-rail-footer{" + mobRailFooter + "}}",
+      "@media(max-width:" +
+        bp +
+        "px){.hr-notes-rail-footer button{font:inherit;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;background:#111827;color:white;}}",
+      "@media(max-width:" +
+        bp +
+        "px){.hr-notes-rail-footer button.hr-secondary{background:#f3f4f6;color:#111827;}}",
+      "@media(max-width:" +
+        bp +
+        "px){.hr-fixedbar{left:0;right:0;width:100%;max-width:none;border-radius:0;" +
+        "justify-content:center;padding:10px max(16px,env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));" +
+        "bottom:0;box-shadow:0 -8px 26px rgba(15,23,42,.1);border-top:1px solid #d1d5db;border-bottom:0;" +
+        "background:rgba(255,255,255,.98);}}",
+      "@media(max-width:" + bp + "px){body.hr-narrow-rail-open .hr-fixedbar{display:none!important}}",
+      ".hr-note{position:absolute;left:0;right:16px;width:auto;max-width:none;box-sizing:border-box;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:6px 12px 26px rgba(120,53,15,.14), -3px 0 14px rgba(120,53,15,.085);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;outline:none;pointer-events:auto;}",
+      ".hr-note:hover{filter:brightness(.985);}",
       ".hr-note:empty::before{content:'Comment';color:#92400e;font-style:italic;}",
       ".hr-connector{position:fixed;height:0;border-top:2px dotted #d69e2e;transform-origin:left center;pointer-events:none;z-index:2147483644;}",
       ".hr-change del{color:#b42318;background:#fee4e2;text-decoration:line-through;text-decoration-thickness:2px;}",
@@ -64,7 +147,7 @@
       ".hr-mark.hr-active{outline:2px solid #2563eb;outline-offset:2px;}",
       ".hr-popover button,.hr-export-dialog button{font:inherit;border:0;border-radius:7px;padding:6px 9px;cursor:pointer;background:#e5e7eb;color:#111827;}",
       ".hr-popover button:hover,.hr-export-dialog button:hover{filter:brightness(.95);}",
-      ".hr-fixedbar{position:fixed;right:16px;bottom:16px;z-index:2147483646;display:flex;gap:8px;padding:8px;background:white;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(15,23,42,.18);font:13px/1.3 system-ui,-apple-system,Segoe UI,sans-serif;}",
+      ".hr-fixedbar{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:2147483646;display:flex;gap:8px;padding:8px;background:white;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(15,23,42,.18);font:13px/1.3 system-ui,-apple-system,Segoe UI,sans-serif;}",
       ".hr-fixedbar button{font:inherit;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;background:#111827;color:white;}",
       ".hr-fixedbar button.hr-secondary{background:#f3f4f6;color:#111827;}",
       ".hr-popover{position:fixed;z-index:2147483647;width:min(360px,calc(100vw - 24px));display:none;background:white;color:#111827;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 18px 42px rgba(15,23,42,.24);padding:12px;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;}",
@@ -248,59 +331,255 @@
     if (selection) selection.removeAllRanges();
   }
 
-  function createNote(annotation) {
+  function notesRail() {
+    var rail = document.getElementById(NOTES_RAIL_ID);
+    if (rail) return rail;
+
+    rail = document.createElement("div");
+    rail.id = NOTES_RAIL_ID;
+    rail.className = "hr-notes-rail";
+    rail.setAttribute("aria-label", "Review comments");
+    rail.addEventListener("scroll", scheduleReviewNotePositioning, { passive: true });
+    document.body.appendChild(rail);
+    ensureNotesRailFooter(rail);
+    return rail;
+  }
+
+  function onReviewFixedToolbarClick(event) {
+    var action = event.target && event.target.getAttribute("data-hr-fixed");
+    if (action === "export") showExportDialog();
+    if (action === "clear" && window.confirm("Remove all saved review annotations for this page?")) {
+      localStorage.removeItem(storageKey());
+      location.reload();
+    }
+  }
+
+  function ensureNotesRailFooter(rail) {
+    var footer = rail.querySelector(".hr-notes-rail-footer");
+    if (!footer) {
+      footer = document.createElement("div");
+      footer.className = "hr-notes-rail-footer";
+      footer.setAttribute("aria-label", "Review actions");
+      footer.innerHTML = [
+        "<button type=\"button\" data-hr-fixed=\"export\">Export review</button>",
+        "<button type=\"button\" class=\"hr-secondary\" data-hr-fixed=\"clear\">Clear page</button>"
+      ].join("");
+      footer.addEventListener("click", onReviewFixedToolbarClick);
+      rail.appendChild(footer);
+    }
+    return footer;
+  }
+
+  function ensureNotesRailSizer(rail) {
+    ensureNotesRailFooter(rail);
+    var footer = rail.querySelector(".hr-notes-rail-footer");
+    var sizer = rail.querySelector(".hr-notes-rail-sizer");
+    if (!sizer) {
+      sizer = document.createElement("div");
+      sizer.className = "hr-notes-rail-sizer";
+      if (footer) rail.insertBefore(sizer, footer);
+      else rail.appendChild(sizer);
+      if (!sizer.dataset.hrReviewScrollBound) {
+        sizer.dataset.hrReviewScrollBound = "1";
+        sizer.addEventListener("scroll", scheduleReviewNotePositioning, { passive: true });
+      }
+    }
+    return sizer;
+  }
+
+  function createCommentUi(annotation) {
     var connector = document.createElement("span");
     connector.className = "hr-connector";
 
-    var note = document.createElement("span");
+    var note = document.createElement("div");
     note.className = "hr-note";
+    note.setAttribute("data-hr-note-for", annotation.id);
     note.setAttribute("aria-label", "Review comment");
     note.textContent = annotation.content || "";
 
-    var fragment = document.createDocumentFragment();
-    fragment.appendChild(connector);
-    fragment.appendChild(note);
-    return fragment;
+    ensureNotesRailSizer(notesRail()).appendChild(note);
+    syncNotesRailVisibilityClass();
+    return { connector: connector, note: note };
+  }
+
+  function layoutAnchoredNoteTops(layouts, marginTop, marginBottom, stackGap) {
+    if (!layouts.length) return [];
+    var maxB = window.innerHeight - marginBottom;
+    var n = layouts.length;
+    var desired = layouts.map(function (it) {
+      return it.anchorMidY - it.h / 2;
+    });
+    var hList = layouts.map(function (it) {
+      return it.h;
+    });
+    var tops = [];
+    var i;
+    tops[0] = desired[0];
+    for (i = 1; i < n; i += 1) {
+      tops[i] = Math.max(desired[i], tops[i - 1] + hList[i - 1] + stackGap);
+    }
+
+    var spanTop = tops[0];
+    var spanBot = tops[n - 1] + hList[n - 1];
+    var low = marginTop - spanTop;
+    var high = maxB - spanBot;
+    var shift = 0;
+    if (low <= high) {
+      if (0 < low) shift = low;
+      else if (0 > high) shift = high;
+    } else {
+      shift = low;
+    }
+    for (i = 0; i < n; i += 1) {
+      tops[i] += shift;
+    }
+    return tops;
   }
 
   function positionReviewNotes() {
-    document.querySelectorAll(".hr-comment").forEach(function (mark) {
-      var note = mark.querySelector(".hr-note");
+    var rail = document.getElementById(NOTES_RAIL_ID);
+    if (!rail) return;
+
+    var marks = Array.prototype.filter.call(
+      document.querySelectorAll(".hr-comment[" + MARK_ATTR + "]"),
+      function (m) {
+        return Boolean(m.querySelector(".hr-connector"));
+      }
+    );
+
+    marks.sort(function (a, b) {
+      return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+    });
+
+    var sizer = ensureNotesRailSizer(rail);
+
+    marks.forEach(function (mark) {
+      var id = mark.getAttribute(MARK_ATTR);
+      var note = rail.querySelector(".hr-note[data-hr-note-for='" + id + "']");
+      if (note) sizer.appendChild(note);
+    });
+
+    var marginTopNotes = 12;
+    var marginBottomNotes = 96;
+    var stackGapPx = 8;
+    var markConnectorPadPx = 6;
+    var noteConnectorPadPx = 4;
+
+    var narrow = isNarrowReviewViewport();
+
+    var layouts = [];
+
+    marks.forEach(function (mark) {
       var connector = mark.querySelector(".hr-connector");
-      if (!note) return;
+      var id = mark.getAttribute(MARK_ATTR);
+      var note = document.querySelector(".hr-note[data-hr-note-for='" + id + "']");
+      if (!connector || !note) return;
 
       var rect = mark.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > window.innerHeight) {
-        note.style.display = "none";
-        if (connector) connector.style.display = "none";
-        return;
-      }
 
-      note.style.display = "block";
-      var maxTop = Math.max(12, window.innerHeight - note.offsetHeight - 12);
-      var top = Math.min(maxTop, Math.max(12, rect.top - 6));
-      note.style.top = top + "px";
-
-      if (!connector) return;
-      var noteRect = note.getBoundingClientRect();
-      var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + 4));
-      var startY = rect.top + rect.height / 2;
-      var endX = noteRect.left - 6;
-      var endY = noteRect.top + Math.min(24, noteRect.height / 2);
-      var dx = endX - startX;
-      var dy = endY - startY;
-
-      if (dx <= 8) {
+      if (rect.bottom < -8 || rect.top > window.innerHeight + 8) {
         connector.style.display = "none";
+        note.style.display = "none";
+        note.setAttribute("aria-hidden", "true");
         return;
       }
 
-      connector.style.display = "block";
-      connector.style.left = startX + "px";
-      connector.style.top = startY + "px";
-      connector.style.width = Math.sqrt(dx * dx + dy * dy) + "px";
-      connector.style.transform = "rotate(" + Math.atan2(dy, dx) + "rad)";
+      var noteWasHidden = note.style.display === "none";
+      if (noteWasHidden) note.style.display = "";
+
+      if (!narrow) {
+        var railPadLeft = parseFloat(window.getComputedStyle(rail).paddingLeft) || 0;
+        var approxNoteLeft = rail.getBoundingClientRect().left + railPadLeft;
+        var roughStart = Math.min(window.innerWidth - 20, Math.max(12, rect.right + markConnectorPadPx));
+        if (approxNoteLeft - noteConnectorPadPx - roughStart <= 8) {
+          connector.style.display = "none";
+          note.style.display = "none";
+          note.setAttribute("aria-hidden", "true");
+          return;
+        }
+      }
+
+      layouts.push({
+        connector: connector,
+        note: note,
+        rect: rect,
+        anchorMidY: rect.top + rect.height / 2,
+        h: note.offsetHeight
+      });
     });
+
+    if (narrow) {
+      marks.forEach(function (mark) {
+        var c = mark.querySelector(".hr-connector");
+        if (c) c.style.display = "none";
+      });
+
+      layouts.forEach(function (item) {
+        var note = item.note;
+        note.style.position = "";
+        note.style.left = "";
+        note.style.right = "";
+        note.style.top = "";
+        note.style.width = "";
+        note.style.maxWidth = "";
+        note.style.display = "";
+        note.removeAttribute("aria-hidden");
+      });
+
+      sizer.style.minHeight = "";
+    } else {
+      var tops = layoutAnchoredNoteTops(layouts, marginTopNotes, marginBottomNotes, stackGapPx);
+
+      if (layouts.length) {
+        var lastIx = layouts.length - 1;
+        var layoutBottomPx = tops[lastIx] + layouts[lastIx].h;
+        var railViewportH = rail.clientHeight;
+        sizer.style.minHeight = Math.max(railViewportH, layoutBottomPx + 12) + "px";
+      } else {
+        sizer.style.minHeight = "";
+      }
+
+      layouts.forEach(function (item, i) {
+        var note = item.note;
+        var connector = item.connector;
+        var rect = item.rect;
+
+        note.style.position = "absolute";
+        note.style.left = "0";
+        note.style.right = "16px";
+        note.style.width = "";
+        note.style.maxWidth = "";
+        note.style.top = tops[i] + "px";
+
+        note.style.display = "";
+        note.removeAttribute("aria-hidden");
+
+        var noteRect = note.getBoundingClientRect();
+        var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + markConnectorPadPx));
+        var startY = rect.top + rect.height / 2;
+        var endX = noteRect.left - noteConnectorPadPx;
+        var endY = noteRect.top + noteRect.height / 2;
+        var dx = endX - startX;
+        var dy = endY - startY;
+
+        if (dx <= 8) {
+          connector.style.display = "none";
+          note.style.display = "none";
+          note.setAttribute("aria-hidden", "true");
+          return;
+        }
+
+        connector.style.display = "block";
+        note.style.display = "";
+        note.removeAttribute("aria-hidden");
+        connector.style.left = startX + "px";
+        connector.style.top = startY + "px";
+        connector.style.width = Math.sqrt(dx * dx + dy * dy) + "px";
+        connector.style.transform = "rotate(" + Math.atan2(dy, dx) + "rad)";
+      });
+    }
+
+    syncNotesRailVisibilityClass();
   }
 
   function scheduleReviewNotePositioning() {
@@ -356,7 +635,10 @@
     }
 
     span.appendChild(textNode);
-    if (includeReviewNote) span.appendChild(createNote(annotation));
+    if (includeReviewNote) {
+      var commentUi = createCommentUi(annotation);
+      span.appendChild(commentUi.connector);
+    }
     return span;
   }
 
@@ -403,12 +685,16 @@
       return;
     }
 
-    mark.querySelectorAll(".hr-note,.hr-connector").forEach(function (reviewUi) {
+    var rid = mark.getAttribute(MARK_ATTR);
+    mark.querySelectorAll(".hr-connector").forEach(function (reviewUi) {
       reviewUi.remove();
     });
+    var railNote = rid && document.querySelector(".hr-note[data-hr-note-for='" + rid + "']");
+    if (railNote) railNote.remove();
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
     parent.removeChild(mark);
     parent.normalize();
+    syncNotesRailVisibilityClass();
   }
 
   function removeAnnotation(id) {
@@ -500,7 +786,7 @@
       var mark = document.querySelector("[" + MARK_ATTR + "='" + annotation.id + "']");
       if (mark) {
         mark.title = value;
-        var note = mark.querySelector(".hr-note");
+        var note = document.querySelector(".hr-note[data-hr-note-for='" + annotation.id + "']");
         if (note && note.textContent !== value) note.textContent = value;
         scheduleReviewNotePositioning();
       }
@@ -625,14 +911,7 @@
     ].join("");
     document.body.appendChild(bar);
 
-    bar.addEventListener("click", function (event) {
-      var action = event.target && event.target.getAttribute("data-hr-fixed");
-      if (action === "export") showExportDialog();
-      if (action === "clear" && window.confirm("Remove all saved review annotations for this page?")) {
-        localStorage.removeItem(storageKey());
-        location.reload();
-      }
-    });
+    bar.addEventListener("click", onReviewFixedToolbarClick);
   }
 
   function createPopover() {
@@ -866,12 +1145,20 @@
   }
 
   function isReviewUiTarget(target) {
-    return target && target.closest(".hr-popover,.hr-mobile-review,.hr-fixedbar,.hr-export-dialog,.hr-note");
+    if (!target) return false;
+    if (target.nodeType === 3) target = target.parentElement;
+    if (!target || !target.closest) return false;
+    return Boolean(
+      target.closest(
+        ".hr-popover,.hr-mobile-review,.hr-fixedbar,.hr-export-dialog,.hr-notes-rail,.hr-note"
+      )
+    );
   }
 
   function isEditableTarget(target) {
     if (!target) return false;
-    return Boolean(target.closest("input, textarea, select, button, [contenteditable]"));
+    if (target.nodeType === 3) target = target.parentElement;
+    return Boolean(target && target.closest && target.closest("input, textarea, select, button, [contenteditable]"));
   }
 
   function isPrintableKey(event) {
@@ -885,7 +1172,8 @@
 
   function bindEvents() {
     document.addEventListener("mouseup", function (event) {
-      if (isReviewUiTarget(event.target)) return;
+      var t = eventTargetElement(event);
+      if (isReviewUiTarget(t)) return;
       window.setTimeout(function () {
         var range = selectedRange();
         if (range) {
@@ -896,14 +1184,17 @@
     });
 
     document.addEventListener("touchend", function (event) {
-      if (isReviewUiTarget(event.target)) return;
+      var t = eventTargetElement(event);
+      if (isReviewUiTarget(t)) return;
       window.setTimeout(scheduleMobileSelectionButton, 0);
     });
 
     document.addEventListener("selectionchange", scheduleMobileSelectionButton);
 
     document.addEventListener("mousedown", function (event) {
-      if (isReviewUiTarget(event.target)) return;
+      var t = eventTargetElement(event);
+      if (isReviewUiTarget(t)) return;
+      if (t && t.closest && t.closest("[" + MARK_ATTR + "]")) return;
       hidePopover();
     });
 
@@ -915,7 +1206,8 @@
         return;
       }
 
-      if (isEditableTarget(event.target) || isReviewUiTarget(event.target)) return;
+      var keyT = eventTargetElement(event);
+      if (isEditableTarget(keyT) || isReviewUiTarget(keyT)) return;
 
       var range = selectedRange();
       if (!range) return;
@@ -934,7 +1226,21 @@
     });
 
     document.addEventListener("click", function (event) {
-      var mark = event.target && event.target.closest("[" + MARK_ATTR + "]");
+      var elt = eventTargetElement(event);
+
+      var noteEl = elt && elt.closest(".hr-note[data-hr-note-for]");
+      if (noteEl) {
+        var nid = noteEl.getAttribute("data-hr-note-for");
+        var marked = nid && document.querySelector(".hr-comment[" + MARK_ATTR + "='" + nid + "']");
+        if (marked) {
+          event.preventDefault();
+          event.stopPropagation();
+          showPopover(marked);
+        }
+        return;
+      }
+
+      var mark = elt && elt.closest("[" + MARK_ATTR + "]");
       if (mark) {
         event.preventDefault();
         event.stopPropagation();
@@ -946,6 +1252,7 @@
       hidePopover();
       hideMobileReviewButton();
       scheduleReviewNotePositioning();
+      syncNarrowRailChromeClass();
     });
 
     window.addEventListener("scroll", function () {
@@ -957,6 +1264,7 @@
   function init(options) {
     state.options = Object.assign({}, state.options, options || {});
     injectStyles();
+    notesRail();
     state.annotations = loadAnnotations();
     if (state.options.autoRestore) restoreAnnotations();
     createFixedBar();
@@ -973,6 +1281,9 @@
       state.annotations = [];
       hideMobileReviewButton();
       hidePopover();
+      var rail = document.getElementById(NOTES_RAIL_ID);
+      if (rail) rail.innerHTML = "";
+      syncNotesRailVisibilityClass();
     },
     annotations: function () {
       return state.annotations.slice();
