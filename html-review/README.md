@@ -27,6 +27,8 @@ Then open the page in a browser:
 3. Press `Delete` or `Backspace` to suggest removing selected text.
 4. Use `Export review` to copy or download all annotations for the page.
 
+On mobile, select text and tap the floating `Review` button to open the composer. Mobile browsers only show the keyboard after a real text field is focused.
+
 Annotations are stored in `localStorage` per origin and path, so each page gets its own review state.
 
 ## Demo
@@ -82,6 +84,8 @@ With text selected:
 - `Cmd/Ctrl + Shift + Enter` comments.
 
 Click an existing comment or edit to change it in the popup. Popup edits save as you type.
+
+On touch devices, selecting text shows a floating `Review` button because there is no hardware keyboard event to trigger the composer.
 
 ## Agent prompt
 
