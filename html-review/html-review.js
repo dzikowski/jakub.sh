@@ -58,8 +58,9 @@
       ".hr-mark{cursor:pointer;border-radius:2px;padding:0 1px;}",
       ".hr-comment{position:relative;background:#fff7cc;border-bottom:2px solid #d69e2e;box-decoration-break:clone;-webkit-box-decoration-break:clone;}",
       ".hr-notes-rail{display:none;}",
-      ".hr-notes-rail:not(:empty){display:flex;position:fixed;z-index:2147483643;top:16px;right:16px;width:min(280px,calc(100vw - 32px));max-height:calc(100vh - 96px);overflow-y:auto;overflow-x:hidden;flex-direction:column;gap:10px;padding:0;box-sizing:border-box;-webkit-overflow-scrolling:touch;}",
-      ".hr-note{position:relative;width:100%;box-sizing:border-box;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:0 10px 24px rgba(120,53,15,.14);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;outline:none;flex-shrink:0;}",
+      ".hr-notes-rail:has(.hr-note){display:block;position:fixed;z-index:2147483643;top:0;right:0;bottom:96px;width:min(280px,calc(100vw - 32px));overflow-x:hidden;overflow-y:auto;pointer-events:auto;-webkit-overflow-scrolling:touch;padding:0 0 0 14px;box-sizing:border-box;}",
+      ".hr-notes-rail-sizer{position:relative;width:100%;min-height:100%;pointer-events:none;box-sizing:border-box;}",
+      ".hr-note{position:absolute;left:0;right:16px;width:auto;max-width:none;box-sizing:border-box;min-height:18px;white-space:normal;background:#fffbeb;color:#713f12;border:1px solid #f2c94c;border-left:4px solid #d69e2e;border-radius:10px;padding:8px 10px;box-shadow:6px 12px 26px rgba(120,53,15,.14), -3px 0 14px rgba(120,53,15,.085);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;outline:none;pointer-events:auto;}",
       ".hr-note:hover{filter:brightness(.985);}",
       ".hr-note:empty::before{content:'Comment';color:#92400e;font-style:italic;}",
       ".hr-connector{position:fixed;height:0;border-top:2px dotted #d69e2e;transform-origin:left center;pointer-events:none;z-index:2147483644;}",
@@ -265,6 +266,16 @@
     return rail;
   }
 
+  function ensureNotesRailSizer(rail) {
+    var sizer = rail.querySelector(".hr-notes-rail-sizer");
+    if (!sizer) {
+      sizer = document.createElement("div");
+      sizer.className = "hr-notes-rail-sizer";
+      rail.appendChild(sizer);
+    }
+    return sizer;
+  }
+
   function createCommentUi(annotation) {
     var connector = document.createElement("span");
     connector.className = "hr-connector";
@@ -275,8 +286,42 @@
     note.setAttribute("aria-label", "Review comment");
     note.textContent = annotation.content || "";
 
-    notesRail().appendChild(note);
+    ensureNotesRailSizer(notesRail()).appendChild(note);
     return { connector: connector, note: note };
+  }
+
+  function layoutAnchoredNoteTops(layouts, marginTop, marginBottom, stackGap) {
+    if (!layouts.length) return [];
+    var maxB = window.innerHeight - marginBottom;
+    var n = layouts.length;
+    var desired = layouts.map(function (it) {
+      return it.anchorMidY - it.h / 2;
+    });
+    var hList = layouts.map(function (it) {
+      return it.h;
+    });
+    var tops = [];
+    var i;
+    tops[0] = desired[0];
+    for (i = 1; i < n; i += 1) {
+      tops[i] = Math.max(desired[i], tops[i - 1] + hList[i - 1] + stackGap);
+    }
+
+    var spanTop = tops[0];
+    var spanBot = tops[n - 1] + hList[n - 1];
+    var low = marginTop - spanTop;
+    var high = maxB - spanBot;
+    var shift = 0;
+    if (low <= high) {
+      if (0 < low) shift = low;
+      else if (0 > high) shift = high;
+    } else {
+      shift = low;
+    }
+    for (i = 0; i < n; i += 1) {
+      tops[i] += shift;
+    }
+    return tops;
   }
 
   function positionReviewNotes() {
@@ -294,11 +339,21 @@
       return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
     });
 
+    var sizer = ensureNotesRailSizer(rail);
+
     marks.forEach(function (mark) {
       var id = mark.getAttribute(MARK_ATTR);
       var note = rail.querySelector(".hr-note[data-hr-note-for='" + id + "']");
-      if (note) rail.appendChild(note);
+      if (note) sizer.appendChild(note);
     });
+
+    var marginTopNotes = 12;
+    var marginBottomNotes = 96;
+    var stackGapPx = 8;
+    var markConnectorPadPx = 6;
+    var noteConnectorPadPx = 4;
+
+    var layouts = [];
 
     marks.forEach(function (mark) {
       var connector = mark.querySelector(".hr-connector");
@@ -317,11 +372,57 @@
 
       var noteWasHidden = note.style.display === "none";
       if (noteWasHidden) note.style.display = "";
+
+      var railPadLeft = parseFloat(window.getComputedStyle(rail).paddingLeft) || 0;
+      var approxNoteLeft = rail.getBoundingClientRect().left + railPadLeft;
+      var roughStart = Math.min(window.innerWidth - 20, Math.max(12, rect.right + markConnectorPadPx));
+      if (approxNoteLeft - noteConnectorPadPx - roughStart <= 8) {
+        connector.style.display = "none";
+        note.style.display = "none";
+        note.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      layouts.push({
+        connector: connector,
+        note: note,
+        rect: rect,
+        anchorMidY: rect.top + rect.height / 2,
+        h: note.offsetHeight
+      });
+    });
+
+    var tops = layoutAnchoredNoteTops(layouts, marginTopNotes, marginBottomNotes, stackGapPx);
+
+    if (layouts.length) {
+      var lastIx = layouts.length - 1;
+      var layoutBottomPx = tops[lastIx] + layouts[lastIx].h;
+      var railViewportH = rail.clientHeight;
+      sizer.style.minHeight = Math.max(railViewportH, layoutBottomPx + 12) + "px";
+    } else {
+      sizer.style.minHeight = "";
+    }
+
+    layouts.forEach(function (item, i) {
+      var note = item.note;
+      var connector = item.connector;
+      var rect = item.rect;
+
+      note.style.position = "absolute";
+      note.style.left = "0";
+      note.style.right = "16px";
+      note.style.width = "";
+      note.style.maxWidth = "";
+      note.style.top = tops[i] + "px";
+
+      note.style.display = "";
+      note.removeAttribute("aria-hidden");
+
       var noteRect = note.getBoundingClientRect();
-      var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + 4));
+      var startX = Math.min(window.innerWidth - 20, Math.max(12, rect.right + markConnectorPadPx));
       var startY = rect.top + rect.height / 2;
-      var endX = noteRect.left - 6;
-      var endY = noteRect.top + Math.min(24, noteRect.height / 2);
+      var endX = noteRect.left - noteConnectorPadPx;
+      var endY = noteRect.top + noteRect.height / 2;
       var dx = endX - startX;
       var dy = endY - startY;
 
